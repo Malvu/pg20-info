@@ -1,0 +1,10 @@
+[Unit]
+Description=Pg20 Info : export périodique de la liste des postes
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=15s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

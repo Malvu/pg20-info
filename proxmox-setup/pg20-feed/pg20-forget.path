@@ -1,0 +1,9 @@
+[Unit]
+Description=Pg20 Info : demandes de suppression de postes (déclencheur)
+
+[Path]
+DirectoryNotEmpty=/var/lib/pg20-forget
+Unit=pg20-forget.service
+
+[Install]
+WantedBy=multi-user.target

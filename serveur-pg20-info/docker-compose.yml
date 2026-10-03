@@ -1,0 +1,26 @@
+# Serveur RustDesk "Pg20 Info"
+#   hbbs = annuaire / mise en relation des postes (ports 21115, 21116 TCP+UDP)
+#   hbbr = relais quand la connexion directe est impossible (port 21117)
+# Linux uniquement (network_mode: host). La configuration vient du fichier .env (créé par install.sh).
+services:
+  hbbs:
+    container_name: pg20-info-hbbs
+    image: rustdesk/rustdesk-server:latest
+    # -r : relais annoncé aux clients
+    # -k _ : refuse tout client qui ne présente pas la clé de ce serveur
+    command: hbbs -r ${RD_HOST:?Renseignez RD_HOST dans .env (ou lancez ./install.sh)}:21117 -k _
+    volumes:
+      - ./data:/root
+    network_mode: host
+    depends_on:
+      - hbbr
+    restart: unless-stopped
+
+  hbbr:
+    container_name: pg20-info-hbbr
+    image: rustdesk/rustdesk-server:latest
+    command: hbbr -k _
+    volumes:
+      - ./data:/root
+    network_mode: host
+    restart: unless-stopped

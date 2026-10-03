@@ -1,0 +1,32 @@
+[Unit]
+Description=Pg20 Info : liste des postes RustDesk et fiches en attente (réseau local, jeton)
+After=network-online.target pg20-peers-export.service
+Wants=network-online.target
+
+[Service]
+User=nobody
+Group=nogroup
+SupplementaryGroups=pg20-inbox
+Environment=PG20_FEED_BIND=<IP_VM>
+Environment=PG20_FEED_PORT=8099
+LoadCredential=token:/etc/pg20/feed.token
+ExecStart=/usr/bin/python3 /usr/local/lib/pg20/peers-feed.py
+Restart=on-failure
+RestartSec=5
+
+# Isolation : lit peers.json, lit et efface les fiches du dossier d'attente, ne parle qu'au réseau local / WireGuard
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadOnlyPaths=/var/lib/pg20-peers
+ReadWritePaths=-/var/lib/pg20-inbox -/var/lib/pg20-forget
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET
+MemoryDenyWriteExecute=yes
+IPAddressDeny=any
+IPAddressAllow=<RESEAU_LOCAL> <RESEAU_WIREGUARD> 127.0.0.0/8
+
+[Install]
+WantedBy=multi-user.target

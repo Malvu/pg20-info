@@ -1,0 +1,2 @@
+Placez ici l'installeur RustDesk que vous voulez embarquer dans l'exe hors ligne, par exemple rustdesk-1.5.0-x86_64.exe
+(a telecharger vous-meme depuis https://github.com/rustdesk/rustdesk/releases), puis lancez Build-Installer.ps1 -InstallerFile .\redist\<fichier>.

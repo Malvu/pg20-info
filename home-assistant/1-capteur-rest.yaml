@@ -1,0 +1,20 @@
+# Pg20 Info : capteur Home Assistant qui lit la liste des postes RustDesk du serveur (pg20-info).
+# À AJOUTER dans configuration.yaml (module "File editor") : si vous avez déjà une section "rest:", ajoutez seulement
+# l'élément "- resource: ..." dans cette section existante.
+# Home Assistant interroge la VM (réseau local → VM, autorisé) : la VM, elle, n'a aucun accès vers Home Assistant.
+#
+# Puis : Outils de développement > YAML > "Vérifier la configuration", puis "Recharger" la section REST (ou redémarrer).
+
+rest:
+  - resource: http://<IP_VM>:8099/peers?limit=30
+    scan_interval: 30
+    timeout: 8
+    headers:
+      Authorization: !secret pg20_feed_bearer
+    sensor:
+      - name: "RustDesk postes enregistrés"
+        unique_id: pg20_rustdesk_postes_enregistres
+        value_template: "{{ value_json.count }}"
+        json_attributes:
+          - peers
+          - generated_at

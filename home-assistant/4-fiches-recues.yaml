@@ -1,0 +1,89 @@
+# Pg20 Info : notification sur le téléphone quand un exe d'installation envoie sa fiche au serveur, AVEC le nom du client,
+# le code de contrôle et un bouton « Valider ». DÉJÀ CRÉÉES dans Home Assistant le 2026-10-03 : ce fichier n'est que la copie de référence
+# des deux automatisations (rustdesk_fiche_recue et rustdesk_fiche_valider). Le seul ajout manuel est 5-rest-command-valider.yaml.
+#
+# Principe : aucun capteur supplémentaire. Le service du flux (peers-feed.py, port 8099) ajoute « pending_label » (nom), « pending_code »
+# (code de contrôle choisi par le serveur) et « pending_since » (heure d'arrivée) aux postes dont la fiche attend d'être relevée, ou l'a été
+# il y a moins de 2 minutes ; le capteur existant sensor.rustdesk_postes_enregistres (fichier 1) les reçoit dans son attribut « peers ».
+# Ni le mot de passe ni la fiche chiffrée n'y figurent jamais.
+#
+# Bouton « Valider » : traité par l'application Home Assistant du téléphone (qui passe par le VPN WireGuard « Maison ») -> événement
+# mobile_app_notification_action -> automatisation 2 -> rest_command.pg20_valider -> POST /records/validate sur le flux -> le PC applique
+# la validation à sa prochaine synchronisation (Pg20-Clients). Le VPN doit être actif sur le téléphone quand on touche le bouton.
+#
+# Page de validation (ajoutée ensuite) : script script.pg20_valider_derniere + dashboard « Pg20 Info » (url pg20-info, vue fiches : carte
+# Markdown qui affiche la fiche la plus récente à valider avec son code, et un bouton « Valider » qui lance le script). La notification
+# ouvre cette page au toucher (data.clickAction: /pg20-info/fiches) et garde son bouton « Valider » (visible une fois dépliée).
+# Version finale : UN seul bouton « Valider » (script.pg20_valider_et_accueil = valider + fermer la notification + écran d'accueil du téléphone
+# via command_activity, Microsoft Launcher). Le bouton de la notification valide aussi et ferme la notification.
+# Ces objets sont créés dans Home Assistant (Paramètres > Automatisations / Scripts / Tableaux de bord) : pas de fichier à coller.
+# Le flux annonce une fiche (pending_*) jusqu'à sa validation ou 30 minutes, même une fois relevée par le PC.
+# Limites :
+# - pas de notification au premier chargement du capteur ni après une indisponibilité (les fiches déjà en attente ne sont pas ré-annoncées) ;
+# - seuls les 30 postes les plus récents sont lus par le capteur (?limit=30).
+
+# ===================== Automatisation 1 : notification =====================
+alias: "RustDesk : fiche d'installation reçue"
+description: "Notifie le téléphone, avec le nom du client, le code de contrôle et un bouton Valider, quand un exe d'installation envoie sa fiche au serveur Pg20 Info."
+mode: queued
+triggers:
+  - trigger: state
+    entity_id: sensor.rustdesk_postes_enregistres
+    attribute: peers
+actions:
+  - variables:
+      old_stamps: "{{ trigger.from_state.attributes.peers | default([]) | selectattr('pending_since', 'defined') | map(attribute='pending_since') | list }}"
+  - variables:
+      new_records: "{{ [] if (trigger.from_state is none or trigger.from_state.attributes.peers is not defined) else (trigger.to_state.attributes.peers | default([]) | selectattr('pending_since', 'defined') | rejectattr('pending_since', 'in', old_stamps) | list) }}"
+  - repeat:
+      for_each: "{{ new_records }}"
+      sequence:
+        - action: notify.mobile_app_<TELEPHONE>
+          data:
+            title: "RustDesk : fiche reçue"
+            message: "{{ repeat.item.pending_label }} vient de s'installer (ID {{ repeat.item.id }}). Code de contrôle : {{ repeat.item.pending_code }}. Comparez-le avec l'écran du client, puis touchez Valider."
+            data:
+              tag: "rustdesk-fiche-{{ repeat.item.id }}"
+              ttl: 0
+              priority: high
+              actions:
+                - action: "PG20_VALIDER__{{ repeat.item.id }}__{{ repeat.item.pending_since }}"
+                  title: "Valider"
+
+# ===================== Automatisation 2 : bouton « Valider » =====================
+# (à lire comme un second fichier : alias: "RustDesk : valider une fiche depuis le téléphone")
+#
+# mode: queued
+# triggers:
+#   - trigger: event
+#     event_type: mobile_app_notification_action
+# conditions:
+#   - "{{ trigger.event.data.action | default('') | string | regex_match('^PG20_VALIDER__[0-9]{6,12}__[0-9T:.-]+Z$') }}"
+# actions:
+#   - variables:
+#       parts: "{{ trigger.event.data.action.split('__') }}"
+#   - variables:
+#       rid: "{{ parts[1] }}"
+#       since: "{{ parts[2] }}"
+#   - action: rest_command.pg20_valider
+#     data:
+#       id: "{{ rid }}"
+#       received_at: "{{ since }}"
+#     response_variable: res
+#     continue_on_error: true
+#   - if:
+#       - "{{ res is defined and res is not none and res.status | default(0) == 200 }}"
+#     then:
+#       - action: notify.mobile_app_<TELEPHONE>
+#         data:
+#           title: "RustDesk : fiche validée"
+#           message: "Validation envoyée au serveur (ID {{ rid }}). Votre PC l'appliquera à sa prochaine synchronisation."
+#           data:
+#             tag: "rustdesk-fiche-{{ rid }}"
+#     else:
+#       - action: notify.mobile_app_<TELEPHONE>
+#         data:
+#           title: "RustDesk : validation non envoyée"
+#           message: "La validation de l'ID {{ rid }} n'a pas pu être envoyée au serveur (VPN actif ? serveur joignable ?). Réessayez avec le bouton de la notification précédente, ou validez depuis Pg20-Clients."
+#           data:
+#             tag: "rustdesk-erreur-{{ rid }}"

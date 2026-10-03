@@ -1,0 +1,29 @@
+# Valeurs propres à une installation : ne jamais les versionner
+technician.pub.xml
+technician.key
+*.key
+*.pem
+*.crt
+.env
+client-settings.txt
+rustdesk-deployments.csv
+clients.json
+feed.json
+deleted.json
+
+# Exes et installeurs : à construire ou télécharger soi-même
+dist/
+*.exe
+redist/*
+!redist/A-LIRE.txt
+
+# Données du serveur et journaux
+data/
+*.sqlite3
+*.log
+
+# Archives (elles se joignent à une release, pas au dépôt)
+*.zip
+
+# Outils locaux
+.claude/

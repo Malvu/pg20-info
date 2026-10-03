@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Pg20 Info · Clients</title>
+<style>
+  :root {
+    --bg:#f3f4f7; --card:#ffffff; --text:#161a22; --muted:#5d6877; --line:#e2e5eb;
+    --brand:#2557d6; --brand-hover:#1c46b2; --on-brand:#ffffff; --soft:#eef2fb;
+    --ok:#0e7a54; --ok-bg:#ddf4ea; --warn:#8a5200; --warn-bg:#ffefc4; --bad:#b3261e; --bad-bg:#fde7e5;
+    --shadow:0 1px 2px rgba(16,24,40,.06), 0 3px 10px rgba(16,24,40,.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:#0d1015; --card:#161a22; --text:#e8ecf2; --muted:#98a4b5; --line:#262d39;
+      --brand:#5d8ef0; --brand-hover:#7ba3f6; --on-brand:#0a1020; --soft:#1b2231;
+      --ok:#5ed3a3; --ok-bg:#11342a; --warn:#f1c25a; --warn-bg:#3a2d10; --bad:#ff8b83; --bad-bg:#3b1a18;
+      --shadow:none;
+    }
+  }
+  * { box-sizing:border-box; }
+  html { -webkit-text-size-adjust:100%; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.45 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:0 16px 56px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:22px 0 14px; }
+  h1 { margin:0; font-size:22px; font-weight:650; letter-spacing:-.01em; }
+  h1 small { display:block; font-size:13px; font-weight:400; color:var(--muted); letter-spacing:0; margin-top:2px; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; }
+  .chip { display:inline-flex; align-items:center; gap:7px; padding:5px 11px; border:1px solid var(--line); border-radius:999px; background:var(--card); font-size:13px; color:var(--muted); }
+  .dot { width:8px; height:8px; border-radius:50%; background:#9aa4b2; flex:none; }
+  .chip.ok .dot { background:#1fa971; } .chip.bad .dot { background:#e0554c; } .chip.ok { color:var(--text); }
+  .toolbar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin:6px 0 14px; }
+  .search { flex:1 1 220px; min-width:180px; padding:10px 14px; border:1px solid var(--line); border-radius:10px; background:var(--card); color:var(--text); font:inherit; }
+  .search:focus, button:focus-visible, summary:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
+  button { font:inherit; cursor:pointer; border-radius:10px; border:1px solid var(--line); background:var(--card); color:var(--text); padding:9px 14px; }
+  button:hover:not(:disabled) { background:var(--soft); }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  button.primary { background:var(--brand); border-color:var(--brand); color:var(--on-brand); font-weight:600; }
+  button.primary:hover:not(:disabled) { background:var(--brand-hover); }
+  button.danger { color:var(--bad); }
+  .toggle { display:inline-flex; align-items:center; gap:8px; color:var(--muted); font-size:14px; cursor:pointer; user-select:none; }
+  .banner { display:flex; gap:12px; align-items:flex-start; padding:12px 16px; margin:0 0 14px; border-radius:12px; background:var(--warn-bg); color:var(--warn); }
+  .banner b { color:inherit; }
+  .list { display:grid; gap:10px; }
+  .card { display:grid; grid-template-columns:auto 1fr auto; gap:14px; align-items:center; padding:14px 16px; background:var(--card); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); }
+  .card.pending { border-color:var(--warn); }
+  .card.hidden { opacity:.65; }
+  .avatar { width:44px; height:44px; border-radius:50%; display:grid; place-items:center; font-weight:650; color:#fff; font-size:16px; flex:none; }
+  .main { min-width:0; }
+  .name { display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-weight:650; font-size:16px; }
+  .sub { color:var(--muted); font-size:13.5px; margin-top:2px; overflow-wrap:anywhere; }
+  .meta { color:var(--muted); font-size:12.5px; margin-top:4px; }
+  .pill { font-size:12px; font-weight:600; padding:2px 9px; border-radius:999px; }
+  .pill.ok { background:var(--ok-bg); color:var(--ok); } .pill.warn { background:var(--warn-bg); color:var(--warn); } .pill.mute { background:var(--soft); color:var(--muted); }
+  .codebox { display:inline-block; margin-top:6px; padding:5px 11px; border-radius:10px; background:var(--warn-bg); color:var(--warn); font-size:13px; }
+  .codebox b { font:700 15px/1 ui-monospace,Consolas,monospace; letter-spacing:.12em; margin:0 4px; }
+  .incoming { margin-top:6px; padding:6px 11px; border-radius:10px; background:var(--soft); color:var(--text); font-size:13px; overflow-wrap:anywhere; }
+  .new { font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--brand); }
+  .actions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
+  details { position:relative; }
+  summary { list-style:none; cursor:pointer; border:1px solid var(--line); border-radius:10px; padding:8px 12px; background:var(--card); user-select:none; }
+  summary::-webkit-details-marker { display:none; }
+  .menu { position:absolute; right:0; top:calc(100% + 6px); z-index:5; min-width:210px; background:var(--card); border:1px solid var(--line); border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,.18); padding:6px; display:grid; }
+  .menu button { border:0; background:transparent; text-align:left; border-radius:8px; }
+  .empty { text-align:center; padding:48px 20px; color:var(--muted); background:var(--card); border:1px dashed var(--line); border-radius:14px; }
+  .empty b { display:block; color:var(--text); font-size:17px; margin-bottom:6px; }
+  .spinner { display:inline-block; width:16px; height:16px; border:2px solid var(--line); border-top-color:var(--brand); border-radius:50%; animation:spin .8s linear infinite; vertical-align:-3px; margin-right:8px; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .toast { position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(20px); opacity:0; pointer-events:none; transition:.25s; padding:11px 18px; border-radius:12px; background:#1d2330; color:#fff; box-shadow:0 8px 24px rgba(0,0,0,.3); max-width:90vw; z-index:20; }
+  .toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  .toast.bad { background:#a4231b; } .toast.ok { background:#12624a; }
+  footer { margin-top:26px; display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; color:var(--muted); font-size:12.5px; }
+  @media (max-width:640px) {
+    .card { grid-template-columns:auto 1fr; } .actions { grid-column:1 / -1; justify-content:flex-start; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Pg20 Info · Clients<small>Dépannage à distance RustDesk</small></h1>
+    <div class="chips">
+      <span class="chip" id="chipServer"><span class="dot"></span><span id="chipServerText">Serveur…</span></span>
+      <span class="chip" id="chipUsb"><span class="dot"></span><span id="chipUsbText">Clé USB…</span></span>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <input class="search" id="search" type="search" placeholder="Rechercher un client ou un ID…" autocomplete="off">
+    <button id="btnImport" title="Lit les fiches clients enregistrées sur la clé USB">Importer la clé USB</button>
+    <button id="btnRefresh" title="Interroge le serveur">Actualiser</button>
+    <label class="toggle"><input type="checkbox" id="chkHidden"> Afficher les masqués</label>
+  </div>
+
+  <div id="banner"></div>
+  <div class="list" id="list"><div class="empty"><span class="spinner"></span>Recherche de la clé USB et du serveur…</div></div>
+
+  <footer>
+    <span id="footLeft">Les mots de passe restent sur ce PC : cette page ne les reçoit jamais.</span>
+    <button id="btnQuit" title="Arrête l'application">Quitter</button>
+  </footer>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+const TOKEN = "__TOKEN__";
+const $ = (s) => document.querySelector(s);
+let state = null, showHidden = false, refreshing = false, toastTimer = null;
+
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'class') el.className = v; else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  return el;
+}
+async function api(path, body) {
+  const res = await fetch(path, { method: body ? 'POST' : 'GET', cache: 'no-store',
+    headers: { 'X-Token': TOKEN, 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.ok === false) throw new Error(data.error || ('Erreur ' + res.status));
+  return data;
+}
+function toast(msg, kind) {
+  const t = $('#toast'); t.textContent = msg; t.className = 'toast show ' + (kind || '');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3800);
+}
+function initials(name) {
+  const w = String(name).replace(/[()]/g, '').trim().split(/\s+/).filter(Boolean);
+  return ((w[0] || '?')[0] + (w[1] ? w[1][0] : '')).toUpperCase();
+}
+function color(id) { let n = 0; for (const c of String(id)) n = (n * 31 + c.charCodeAt(0)) % 360; return 'hsl(' + n + ' 48% 42%)'; }
+
+async function act(action, c, extra, okMessage) {
+  try { const r = await api('/api/' + action, Object.assign({ id: c.id }, extra || {})); toast(r.message || okMessage || 'Fait', 'ok'); await reload(); }
+  catch (e) { toast(e.message, 'bad'); }
+}
+function closeMenus() { document.querySelectorAll('details[open]').forEach((d) => d.removeAttribute('open')); }
+
+function card(c) {
+  const pending = c.status === 'A valider', hidden = c.status === 'Ignore';
+  const menu = h('div', { class: 'menu' },
+    c.hasPassword ? h('button', { onclick: () => { closeMenus(); act('copy', c); } }, 'Copier le mot de passe (30 s)') : null,
+    pending ? h('button', { onclick: () => { closeMenus(); act('validate', c, null, 'Poste validé'); } }, c.incoming ? 'Valider la mise à jour' : 'Valider ce poste') : null,
+    h('button', { onclick: () => { closeMenus(); const n = prompt('Nom du client pour l’ID ' + c.idText + ' :', c.unknown ? '' : c.name); if (n && n.trim()) act('rename', c, { name: n.trim() }, 'Nom enregistré'); } }, 'Renommer'),
+    h('button', { onclick: () => { closeMenus(); act('hide', c, { hidden: !hidden }, hidden ? 'Client affiché' : 'Client masqué'); } }, hidden ? 'Afficher à nouveau' : 'Masquer'),
+    h('button', { class: 'danger', onclick: () => { closeMenus(); if (confirm('Supprimer « ' + c.name + ' » (ID ' + c.idText + ') ?\n\nIl sera retiré de ce PC (mot de passe effacé), de la clé USB si elle est branchée, et du serveur.\nSi RustDesk est encore installé chez le client, il se réenregistrera et réapparaîtra « À valider ».\n\nAction définitive.')) act('delete', c, null, 'Client supprimé'); } }, 'Supprimer le client (PC, clé USB, serveur)…'),
+    h('button', { onclick: () => { closeMenus(); if (confirm('Oublier « ' + c.name + ' » sur ce PC seulement ?\n\nSon mot de passe sera effacé de ce PC et la fiche restera masquée. Le serveur et la clé USB ne sont pas modifiés.')) act('forget', c, null, 'Client oublié'); } }, 'Oublier sur ce PC seulement')
+  );
+  return h('div', { class: 'card' + (pending ? ' pending' : '') + (hidden ? ' hidden' : '') },
+    h('div', { class: 'avatar', style: 'background:' + color(c.id) }, initials(c.name)),
+    h('div', { class: 'main' },
+      h('div', { class: 'name' }, c.name, c.isNew ? h('span', { class: 'new' }, 'nouveau') : null,
+        h('span', { class: 'pill ' + (pending ? 'warn' : hidden ? 'mute' : 'ok') },
+          pending ? (c.incoming ? 'Mise à jour reçue · à valider' : c.viaServer ? 'Fiche reçue · à valider' : c.unknown ? 'Poste inconnu · à valider' : 'À valider') : hidden ? 'Masqué' : 'Validé')),
+      h('div', { class: 'sub' }, 'ID ' + c.idText + (c.host ? ' · ' + c.host : '')),
+      pending && c.code ? h('div', { class: 'codebox' }, 'Code de contrôle', h('b', {}, c.code), '— doit être identique à celui affiché chez le client') : null,
+      pending && c.incoming ? h('div', { class: 'incoming' }, 'Nouvelles données reçues : ' + c.incoming.name + (c.incoming.host ? ' · ' + c.incoming.host : '') + (c.incoming.installed ? ' · ' + c.incoming.installed : '') + '. Elles remplaceront les actuelles (dont le mot de passe) seulement si vous validez.') : null,
+      h('div', { class: 'meta' }, (c.installed ? 'Installé le ' + c.installed : 'Installation non enregistrée sur la clé') + ' · ' + (c.firstSeen ? 'vu par le serveur le ' + c.firstSeen : 'pas encore vu par le serveur'))),
+    h('div', { class: 'actions' },
+      h('button', { class: 'primary', onclick: () => {
+        if (pending && !confirm('« ' + c.name + ' » (ID ' + c.idText + ') n’a pas été validé.\nSe connecter quand même ?')) return;
+        act('connect', c, null, 'Ouverture de RustDesk…'); } }, 'Se connecter'),
+      h('details', {}, h('summary', { title: 'Autres actions' }, '⋯'), menu)));
+}
+
+function render() {
+  if (!state) return;
+  const sv = state.server, us = state.usb;
+  $('#chipServer').className = 'chip ' + (sv.ok ? 'ok' : 'bad'); $('#chipServer').title = sv.message || '';
+  $('#chipServerText').textContent = sv.ok ? 'Serveur en ligne · ' + sv.count + ' poste' + (sv.count > 1 ? 's' : '') : 'Serveur injoignable';
+  $('#chipUsb').className = 'chip ' + (us.files > 0 ? 'ok' : ''); $('#chipUsb').title = us.message || '';
+  $('#chipUsbText').textContent = us.files > 0 ? 'Clé USB détectée' : 'Clé USB non détectée';
+  const q = $('#search').value.trim().toLowerCase().replace(/\s+/g, '');
+  const rows = state.clients.filter((c) => !q || (c.name + c.id + (c.host || '')).toLowerCase().replace(/\s+/g, '').includes(q));
+  const pendAll = state.clients.filter((c) => c.status === 'A valider');
+  const pend = pendAll.length, withCode = pendAll.filter((c) => c.code).length;
+  const b = $('#banner'); b.replaceChildren();
+  if (pend) b.append(h('div', { class: 'banner' }, h('div', {}, h('b', {}, pend + ' poste' + (pend > 1 ? 's' : '') + ' à valider. '),
+    (withCode ? 'Comparez le code de contrôle affiché sur la fiche avec celui de l’écran du client avant de valider. ' : '') +
+    'Si ce n’est pas vous qui avez installé un poste, ne le validez pas.')));
+  const list = $('#list'); list.replaceChildren();
+  if (!rows.length) {
+    list.append(h('div', { class: 'empty' }, h('b', {}, state.clients.length ? 'Aucun résultat' : 'Aucun client pour l’instant'),
+      state.clients.length ? 'Essayez un autre nom ou un autre ID.' : 'Branchez la clé USB utilisée chez le client, puis cliquez sur « Importer la clé USB ».'));
+  } else rows.forEach((c) => list.append(card(c)));
+}
+
+// Redessine seulement si les données ont changé : un menu ouvert ou une recherche en cours ne sont plus interrompus par l'actualisation automatique
+let lastSig = '';
+async function reload(force) {
+  const s = await api('/api/state?hidden=' + (showHidden ? 1 : 0));
+  const sig = JSON.stringify([s.clients, s.server, s.usb]);
+  const changed = sig !== lastSig;
+  state = s; lastSig = sig;
+  if (changed || force) render();
+}
+async function refresh(withSync) {
+  if (refreshing) return; refreshing = true;
+  try { if (withSync) await api('/api/sync', {}); await reload(); }
+  catch (e) { toast(e.message, 'bad'); }
+  finally { refreshing = false; }
+}
+
+$('#search').addEventListener('input', render);
+$('#chkHidden').addEventListener('change', (e) => { showHidden = e.target.checked; reload(true); });
+$('#btnRefresh').addEventListener('click', async () => { await refresh(true); toast('Liste actualisée', 'ok'); });
+$('#btnImport').addEventListener('click', async () => {
+  try { const r = await api('/api/import', {}); await reload(); toast(r.message, 'ok'); } catch (e) { toast(e.message, 'bad'); }
+});
+$('#btnQuit').addEventListener('click', async () => {
+  try { await api('/api/quit', {}); } catch (e) { }
+  document.body.replaceChildren(h('div', { class: 'wrap' }, h('div', { class: 'empty', style: 'margin-top:60px' }, h('b', {}, 'Application fermée'), 'Vous pouvez fermer cet onglet. Relancez Pg20-Clients pour la rouvrir.')));
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('details')) closeMenus(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(true); });
+setInterval(() => { if (!document.hidden && !document.querySelector('details[open]')) refresh(true); }, 30000);
+
+(async () => {
+  try { await api('/api/import', {}); } catch (e) { }
+  try { await api('/api/sync', {}); } catch (e) { }
+  try { await reload(); } catch (e) { toast(e.message, 'bad'); $('#list').replaceChildren(h('div', { class: 'empty' }, h('b', {}, 'Connexion à l’application impossible'), 'Relancez Pg20-Clients.')); }
+})();
+</script>
+</body>
+</html>

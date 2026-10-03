@@ -1,0 +1,9 @@
+[Unit]
+Description=Pg20 Info : export de la liste des postes RustDesk (lecture de la base hbbs)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/lib/pg20/peers-export.py
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full

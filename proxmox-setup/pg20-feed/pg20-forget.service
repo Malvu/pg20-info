@@ -1,0 +1,17 @@
+[Unit]
+Description=Pg20 Info : retire de la base RustDesk les postes dont la suppression est demandée
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/python3 /usr/local/lib/pg20/peers-forget.py
+# Ce programme doit écrire dans la base de hbbs (sous /home) et parler à docker : pas d'isolation du dossier personnel, mais le reste est verrouillé
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+LockPersonality=yes

@@ -1,0 +1,20 @@
+# Pg20 Info : validation d'une fiche depuis le téléphone (bouton « Valider » de la notification).
+# SEUL ÉLÉMENT À AJOUTER À LA MAIN dans Home Assistant : les commandes REST se déclarent en YAML uniquement.
+#
+# 1) Application « File editor » > ouvrir configuration.yaml > coller TOUT le bloc ci-dessous à la fin du fichier
+#    (clé de premier niveau, sans indentation ; il n'existe pas encore de « rest_command: » chez vous : aucun doublon possible).
+# 2) Outils de développement > YAML > « Vérifier la configuration », puis REDÉMARRER Home Assistant
+#    (les commandes REST ne se rechargent pas à chaud ; le redémarrage dure environ une minute).
+# 3) Dites-le à l'assistant : il teste la chaîne complète (fausse fiche -> notification -> bouton -> serveur -> PC).
+#
+# Le secret « pg20_feed_bearer » (déjà utilisé par le capteur des postes) contient « Bearer <jeton> » : rien à créer.
+
+rest_command:
+  pg20_valider:
+    url: "http://<IP_VM>:8099/records/validate"
+    method: post
+    headers:
+      Authorization: !secret pg20_feed_bearer
+    content_type: "application/json"
+    payload: '{"id": "{{ id }}", "received_at": "{{ received_at }}"}'
+    timeout: 8

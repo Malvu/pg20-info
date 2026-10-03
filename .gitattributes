@@ -1,0 +1,4 @@
+# Les fichiers sont conservés tels quels, sans conversion des fins de ligne.
+# Les scripts .sh, .py et les unités systemd doivent rester en LF pour tourner sous Linux,
+# même si git est réglé sur core.autocrlf=true côté Windows.
+* -text

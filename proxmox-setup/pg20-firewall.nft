@@ -1,0 +1,51 @@
+#!/usr/sbin/nft -f
+# Pare-feu de la VM pg20-info (installé dans /etc/nftables.d/pg20.nft)
+# AVANT D'APPLIQUER : remplacez <RESEAU_LOCAL>, <RESEAU_WIREGUARD> et <IP_PASSERELLE> partout où ils apparaissent.
+# IPv6 est neutralisé ici : systemd-networkd le réactive sur eth0 à chaque démarrage, un sysctl ne suffit pas.
+table inet pg20
+delete table inet pg20
+
+table inet pg20 {
+  # Adresses qui ouvrent trop de connexions vers la réception des fiches (21120) : refusées 10 minutes
+  set inbox_flood {
+    type ipv4_addr
+    flags dynamic, timeout
+    timeout 10m
+    size 4096
+  }
+
+  chain input {
+    type filter hook input priority 0; policy drop;
+
+    iifname "lo" accept
+    ct state established,related accept
+    ct state invalid drop
+    meta nfproto ipv6 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+    meta nfproto ipv6 drop
+    ip protocol icmp icmp type { echo-request, destination-unreachable, time-exceeded } accept
+
+    # RustDesk : ouvert à Internet (redirections de ports de la box), en IPv4 uniquement
+    tcp dport { 21115, 21116, 21117 } accept
+    udp dport 21116 accept
+
+    # Réception des fiches d'installation (TLS) : ouvert à Internet, 30 nouvelles connexions par minute au maximum par adresse
+    tcp dport 21120 ct state new add @inbox_flood { ip saddr limit rate over 30/minute burst 15 packets } drop
+    tcp dport 21120 accept
+
+    # Administration (SSH, Cockpit) et liste des postes (8099) : réseau local et WireGuard uniquement
+    ip saddr { <RESEAU_LOCAL>, <RESEAU_WIREGUARD> } tcp dport { 22, 9090, 8099 } accept
+  }
+
+  chain output {
+    type filter hook output priority 0; policy accept;
+
+    oifname "lo" accept
+    ct state established,related accept
+    meta nfproto ipv6 icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept
+    meta nfproto ipv6 drop
+
+    # Isolation : la VM peut joindre la passerelle (DNS) et Internet, mais aucun autre appareil du réseau local
+    ip daddr <IP_PASSERELLE> accept
+    ip daddr { <RESEAU_LOCAL>, <RESEAU_WIREGUARD> } drop
+  }
+}

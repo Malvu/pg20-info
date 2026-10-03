@@ -1,0 +1,31 @@
+# Automatisation : notification sur le téléphone quand un nouveau poste RustDesk s'enregistre sur le serveur.
+# À créer APRÈS le capteur (fichier 1) : elle s'appuie sur sensor.rustdesk_postes_enregistres.
+# Elle ne se déclenche pas au premier chargement du capteur (pas de fausse alerte pour les postes déjà connus).
+alias: "RustDesk : nouveau poste enregistré"
+description: "Notifie le téléphone quand un ID inconnu apparaît sur le serveur Pg20 Info."
+mode: queued
+triggers:
+  - trigger: state
+    entity_id: sensor.rustdesk_postes_enregistres
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none
+         and trigger.from_state.state not in ['unknown', 'unavailable']
+         and trigger.to_state.state not in ['unknown', 'unavailable']
+         and (trigger.to_state.state | int(0)) > (trigger.from_state.state | int(0)) }}
+actions:
+  - variables:
+      old_ids: "{{ trigger.from_state.attributes.peers | default([]) | map(attribute='id') | list }}"
+      new_peers: "{{ trigger.to_state.attributes.peers | default([]) | rejectattr('id', 'in', old_ids) | list }}"
+  - repeat:
+      for_each: "{{ new_peers }}"
+      sequence:
+        - action: notify.mobile_app_<TELEPHONE>
+          data:
+            title: "RustDesk : nouveau poste"
+            message: >-
+              ID {{ repeat.item.id }} vient de s'enregistrer sur votre serveur
+              (adresse vue : {{ repeat.item.ip }}). Ouvrez Pg20-Clients sur votre PC pour le valider.
+            data:
+              tag: "rustdesk-{{ repeat.item.id }}"
