@@ -168,6 +168,22 @@ function Send-ServerForget([string]$Id) {
     catch { [pscustomobject]@{ ok = $false; message = "serveur injoignable ou demande refusée ($($_.Exception.Message)). Êtes-vous sur le réseau local ou sur le WireGuard ?" } }
 }
 
+# Prévient le serveur que cette fiche est validée depuis CE PC (même appel que le bouton Valider du téléphone) : l'exe d'installation qui
+# attend chez le client peut alors se fermer. Au mieux : une fiche sans heure de réception (client importé de la clé USB) ou un serveur
+# injoignable ne gênent jamais la validation locale. La validation déposée sur le serveur est ensuite effacée à la synchronisation suivante.
+function Send-ServerValidated($Rec) {
+    $stamp = [string](Get-Prop $Rec 'recvAt')
+    if (-not $stamp) { return }
+    $cfg = Get-FeedConfig
+    if (-not $cfg) { return }
+    try {
+        $token = Unprotect-Dpapi $cfg.token
+        Invoke-RestMethod -Method Post -Uri ($cfg.url + '/records/validate') -Headers @{ Authorization = "Bearer $token" } `
+            -ContentType 'application/json' -Body (ConvertTo-Json -InputObject @{ id = [string]$Rec.id; received_at = $stamp } -Compress) -TimeoutSec 4 | Out-Null
+    }
+    catch { }
+}
+
 # À appeler dans Use-Store. Le serveur est prévenu EN PREMIER : s'il est injoignable, rien n'est supprimé (pas de client à moitié effacé).
 function Remove-Client($Rec) {
     $id = [string]$Rec.id; $name = [string]$Rec.name
@@ -520,7 +536,7 @@ function Handle-WebRequest($Ctx, [string]$WebToken, [string]$HostHeader) {
                     if (-not $rec.pwd) { Send-Json $Ctx @{ ok = $false; error = 'Aucun mot de passe enregistré pour ce client.' } 400; return $false }
                     Copy-ClientPassword $rec; $msg = 'Mot de passe copié : effacé du presse-papiers dans 30 secondes.'
                 }
-                '/api/validate' { Confirm-Client $rec; $msg = 'Poste validé.' }
+                '/api/validate' { Confirm-Client $rec; Send-ServerValidated $rec; $msg = 'Poste validé.' }
                 '/api/rename'   {
                     $name = (([string]$body.name) -replace '[\x00-\x1f]', '').Trim()
                     if ($name.Length -lt 1 -or $name.Length -gt 80) { Send-Json $Ctx @{ ok = $false; error = 'Nom invalide (1 à 80 caractères).' } 400; return $false }
@@ -787,7 +803,7 @@ while ($true) {
         if ($in -match '^([vcnxdVCNXD])\s*(\d+)$') {
             $act = $Matches[1].ToLower(); $rec = Resolve-Client $Matches[2] $view
             switch ($act) {
-                'v' { Confirm-Client $rec; Write-Host "  $($rec.name) : validé." -ForegroundColor Green }
+                'v' { Confirm-Client $rec; Send-ServerValidated $rec; Write-Host "  $($rec.name) : validé." -ForegroundColor Green }
                 'c' { Copy-ClientPassword $rec }
                 'n' { $nom = (Read-Host "  Nouveau nom pour l'ID $(Format-RdId $rec.id)").Trim(); if ($nom) { $rec.name = $nom; $rec.unknown = $false; Save-Store } }
                 'x' { $rec.status = 'Ignore'; Save-Store; Write-Host "  $($rec.name) : masqué (tapez a pour le revoir)." }

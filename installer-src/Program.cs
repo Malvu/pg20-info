@@ -174,7 +174,11 @@ internal static class Program
             try { Directory.Delete(workDir, true); } catch (Exception) { }
         }
 
-        if (!silent)
+        // Code 10 = fiche validée par le technicien (le script l'a déjà annoncé) : la fenêtre se ferme sans attendre une touche
+        bool validatedExit = (exitCode == 10);
+        if (validatedExit) { Log("Fiche validée par le technicien : fermeture sans pause."); exitCode = 0; }
+
+        if (!silent && !validatedExit)
         {
             Console.WriteLine();
             Console.WriteLine(exitCode == 0 ? "Terminé. Appuyez sur une touche pour fermer cette fenêtre..." : "Échec (code " + exitCode + "). Appuyez sur une touche pour fermer cette fenêtre...");

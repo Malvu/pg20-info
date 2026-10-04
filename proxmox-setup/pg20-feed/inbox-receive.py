@@ -2,13 +2,16 @@
 """Reçoit les fiches d'installation envoyées par l'exe Pg20 Info (service exposé à Internet : TCP 21120, TLS).
 
 POST /v1/record   {"v":1, "id":"<ID RustDesk>", "label":"<nom affiché>", "blob":"<fiche chiffrée, base64>"}
+POST /v1/wait     {"v":1, "follow":"<numéro de suivi>"} : attend (20 s au plus) que le technicien valide la fiche : {"ok": true, "validated": true|false}
 GET  /v1/ping     {"ok": true}
 
 Une fiche n'est acceptée que si :
   - le poste (ID) est enregistré sur le serveur RustDesk, avec la MÊME adresse publique que la requête,
     et son enregistrement date de moins de 30 minutes (voir registrations.json, produit par peers-export.py) ;
   - le format est strict et la taille limitée ; le nombre de requêtes par adresse est limité.
-La réponse 200 contient le code de contrôle à 4 chiffres, tiré ici : {"ok": true, "code": "4827"}.
+La réponse 200 contient le code de contrôle à 4 chiffres, tiré ici, et un numéro de suivi aléatoire (32 caractères hexadécimaux) :
+{"ok": true, "code": "4827", "follow": "..."}. Avec ce numéro, l'exe peut attendre la validation du technicien (POST /v1/wait : UNE demande que
+le serveur garde ouverte, pas d'interrogation répétée) et se fermer tout seul. Le flux (peers-feed.py) dépose <suivi>.ok à la validation.
 Le mot de passe du client est dans "blob", chiffré avec la clé publique du technicien : ce service ne peut pas le lire.
 Il ne fait que déposer la fiche dans le dossier d'attente ; le technicien la récupère par le flux (peers-feed.py),
 qui l'efface ensuite. Ce service n'a accès ni à la base de hbbs ni à la clé privée du serveur.
@@ -38,10 +41,18 @@ TTL = int(os.environ.get("PG20_INBOX_TTL", str(14 * 86400)))     # une fiche jam
 MAX_PENDING = int(os.environ.get("PG20_INBOX_MAX_PENDING", "50"))
 MAX_BODY = 4096
 MAX_CONNECTIONS = 16
+TRACK = os.path.join(SPOOL, "track")                              # suivis : <suivi>.json (créé ici), <suivi>.ok (déposé par le flux à la validation)
+TRACK_TTL = int(os.environ.get("PG20_INBOX_TRACK_TTL", "900"))    # un suivi dure 15 min
+MAX_TRACK = 200
+WAIT_MAX = float(os.environ.get("PG20_INBOX_WAIT", "20"))         # durée d'une attente ouverte (secondes) : l'exe la renouvelle si besoin
+MAX_WAITERS = 8                                                   # attentes ouvertes en même temps, au total (sur 16 connexions)
+MAX_WAITERS_IP = 2                                                # ... et par adresse
 
 ID_RE = re.compile(r"^[0-9]{6,12}$")
 B64_RE = re.compile(r"^[A-Za-z0-9+/]+={0,2}$")
 KEYS_OK = {"v", "id", "label", "blob"}
+WAIT_KEYS = {"v", "follow"}
+FOLLOW_RE = re.compile(r"^[0-9a-f]{32}$")
 
 
 def log(msg):
@@ -95,6 +106,10 @@ LIMITER = Limiter(per_ip=int(os.environ.get("PG20_INBOX_RATE_IP", "12")), per_ip
                   total=int(os.environ.get("PG20_INBOX_RATE_TOTAL", "100")), total_window=3600)
 SLOTS = threading.BoundedSemaphore(MAX_CONNECTIONS)
 SPOOL_LOCK = threading.Lock()
+WAIT_LIMITER = Limiter(per_ip=int(os.environ.get("PG20_INBOX_WAIT_RATE_IP", "40")), per_ip_window=600, total=600, total_window=3600)
+WAITERS = threading.BoundedSemaphore(MAX_WAITERS)
+WAIT_IPS = collections.Counter()
+WAIT_LOCK = threading.Lock()
 
 
 def registration_state(pid, ip):
@@ -116,20 +131,57 @@ def registration_state(pid, ip):
 
 
 def store_record(pid, label, blob, ip, code):
-    """Dépose la fiche (écriture atomique, une seule fiche en attente par ID). Renvoie False si le dossier est plein."""
+    """Dépose la fiche (écriture atomique, une seule fiche en attente par ID). Renvoie son heure de réception, ou None si le dossier est plein."""
     path = os.path.join(SPOOL, pid + ".json")
     with SPOOL_LOCK:
         pending = [n for n in os.listdir(SPOOL) if n.endswith(".json")]
         if len(pending) >= MAX_PENDING and (pid + ".json") not in pending:
-            return False
-        rec = {"id": pid, "label": label, "blob": blob, "src_ip": ip, "code": code,
-               "received_at": utc_now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")}
+            return None
+        stamp = utc_now().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        rec = {"id": pid, "label": label, "blob": blob, "src_ip": ip, "code": code, "received_at": stamp}
         fd, tmp = tempfile.mkstemp(dir=SPOOL, prefix=".rec-")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(rec, f, ensure_ascii=False)
         os.chmod(tmp, 0o660)
         os.replace(tmp, path)
-    return True
+    return stamp
+
+
+def new_track(pid, stamp):
+    """Numéro de suivi aléatoire, connu du seul exe qui vient d'envoyer la fiche : il sert à attendre sa validation.
+    Renvoie "" (l'exe se contentera alors de son comportement habituel) si le dossier de suivi est plein ou illisible."""
+    try:
+        os.makedirs(TRACK, mode=0o770, exist_ok=True)
+        with SPOOL_LOCK:
+            if len([n for n in os.listdir(TRACK) if n.endswith(".json")]) >= MAX_TRACK:
+                return ""
+            follow = secrets.token_hex(16)
+            fd, tmp = tempfile.mkstemp(dir=TRACK, prefix=".trk-")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump({"id": pid, "received_at": stamp}, f)
+            os.chmod(tmp, 0o660)
+            os.replace(tmp, os.path.join(TRACK, follow + ".json"))
+        return follow
+    except OSError as e:
+        log("suivi non créé: %s" % e)
+        return ""
+
+
+def claim_wait(ip):
+    """Réserve une attente ouverte : 8 au total, 2 par adresse. Faux si c'est plein (l'exe réessaiera)."""
+    with WAIT_LOCK:
+        if WAIT_IPS[ip] >= MAX_WAITERS_IP or not WAITERS.acquire(blocking=False):
+            return False
+        WAIT_IPS[ip] += 1
+        return True
+
+
+def release_wait(ip):
+    with WAIT_LOCK:
+        WAIT_IPS[ip] -= 1
+        if WAIT_IPS[ip] <= 0:
+            del WAIT_IPS[ip]
+        WAITERS.release()
 
 
 def purge_loop():
@@ -142,6 +194,11 @@ def purge_loop():
                 if os.path.isfile(p) and now - os.path.getmtime(p) > limit:
                     os.unlink(p)
                     log("purge: %s (plus de %d s)" % (n, limit))
+            if os.path.isdir(TRACK):
+                for n in os.listdir(TRACK):
+                    p = os.path.join(TRACK, n)
+                    if os.path.isfile(p) and now - os.path.getmtime(p) > TRACK_TTL:
+                        os.unlink(p)
         except OSError as e:
             log("purge: %s" % e)
         time.sleep(600)
@@ -178,8 +235,52 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(200, {"ok": True})
         return self._send(404 if self.path != "/v1/ping" else 429, {"ok": False})
 
+    def _wait(self, ip):
+        """Attend que le technicien valide la fiche (20 s au plus). Une attente n'existe que pour un numéro de suivi réel :
+        un numéro inconnu reçoit tout de suite la même réponse 409, il ne peut donc pas retenir de connexion."""
+        if not WAIT_LIMITER.allow(ip):
+            return self._send(429, {"ok": False, "error": "rate"})
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+        except ValueError:
+            return self._send(411, {"ok": False})
+        if length <= 0 or length > 256:
+            return self._send(413, {"ok": False})
+        try:
+            data = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, OSError):
+            return self._send(400, {"ok": False})
+        if not (isinstance(data, dict) and set(data) == WAIT_KEYS and data["v"] == 1
+                and isinstance(data["follow"], str) and FOLLOW_RE.match(data["follow"])):
+            return self._send(400, {"ok": False})
+        track = os.path.join(TRACK, data["follow"] + ".json")
+        marker = os.path.join(TRACK, data["follow"] + ".ok")
+        try:
+            known = time.time() - os.path.getmtime(track) <= TRACK_TTL
+        except OSError:
+            known = False
+        if not known:
+            return self._send(409, {"ok": False, "error": "unknown"})
+        validated = os.path.exists(marker)
+        if not validated:
+            if not claim_wait(ip):
+                return self._send(503, {"ok": False, "error": "busy"})
+            try:
+                end = time.monotonic() + WAIT_MAX
+                while not validated and time.monotonic() < end:
+                    time.sleep(0.5)
+                    validated = os.path.exists(marker)
+            finally:
+                release_wait(ip)
+        try:
+            self._send(200, {"ok": True, "validated": validated})
+        except OSError:
+            pass
+
     def do_POST(self):
         ip = self.client_address[0]
+        if self.path == "/v1/wait":
+            return self._wait(ip)
         if self.path != "/v1/record":
             return self._send(404, {"ok": False})
         if not LIMITER.allow(ip):
@@ -227,8 +328,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not stored:
             log("refus: dossier d'attente plein")
             return self._send(503, {"ok": False, "error": "full"})
+        follow = new_track(pid, stored)
         log("fiche acceptée: id=%s depuis %s" % (pid, ip))
-        return self._send(200, {"ok": True, "code": code})
+        resp = {"ok": True, "code": code}
+        if follow:
+            resp["follow"] = follow
+        return self._send(200, resp)
 
 
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
@@ -269,6 +374,7 @@ CONTEXT = make_context()
 
 if __name__ == "__main__":
     os.makedirs(SPOOL, mode=0o770, exist_ok=True)
+    os.makedirs(TRACK, mode=0o770, exist_ok=True)
     threading.Thread(target=purge_loop, daemon=True).start()
     log("pg20-inbox : écoute sur %s:%d (TLS)" % (BIND, PORT))
     Server((BIND, PORT), Handler).serve_forever()

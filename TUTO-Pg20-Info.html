@@ -200,7 +200,7 @@ footer p { max-width: 76ch; }
   <ul class="meta">
     <li><b>Pour</b> : un technicien à l'aise avec Linux, le réseau et PowerShell</li>
     <li><b>Testé sur</b> : Windows 10, Debian 12 sous Proxmox, Home Assistant, Android</li>
-    <li><b>Mis à jour</b> : 3 octobre 2026</li>
+    <li><b>Mis à jour</b> : 4 octobre 2026</li>
     <li><b>Statut</b> : fonctionne chez l'auteur, sans audit externe</li>
   </ul>
 </header>
@@ -259,7 +259,7 @@ footer p { max-width: 76ch; }
   <li><b>Le client double-clique l'exe</b> (clé USB ou lien). Windows demande les droits administrateur.</li>
   <li><b>L'exe installe RustDesk</b>, le règle sur votre serveur avec sa clé, et définit un mot de passe permanent de 12 caractères minimum, saisi ou généré.</li>
   <li><b>L'exe envoie une fiche chiffrée</b> (nom, ID, mot de passe) à votre serveur. Le serveur ne peut pas la lire. Il choisit un code à 4 chiffres, que l'exe affiche chez le client.</li>
-  <li><b>Votre téléphone sonne</b> : nom, ID et code. Vous comparez avec l'écran du client, puis vous touchez Valider.</li>
+  <li><b>Votre téléphone sonne</b> : nom, ID et code. Vous comparez avec l'écran du client, puis vous touchez Valider. La fenêtre chez le client affiche alors « Validé » et se ferme toute seule.</li>
   <li><b>Votre PC relève la fiche</b>, la déchiffre avec une clé privée qui ne quitte jamais votre PC, et applique la validation.</li>
   <li><b>Une icône du bureau « Se connecter »</b> liste les clients validés. Un clic ouvre RustDesk avec l'ID et le mot de passe déjà remplis.</li>
 </ol>
@@ -327,9 +327,9 @@ footer p { max-width: 76ch; }
 <table>
   <thead><tr><th>Niveau</th><th>Ce que vous obtenez</th><th>Ce que vous exposez</th><th>Code maison</th></tr></thead>
   <tbody>
-    <tr><td>1</td><td>Votre serveur RustDesk et un exe qui installe et règle RustDesk chez le client</td><td>Les ports RustDesk</td><td>Environ 800 lignes (PowerShell et C# de l'exe) côté client seulement</td></tr>
-    <tr><td>2</td><td>Mots de passe chiffrés, carnet de clients, connexion en un clic, icônes du bureau</td><td>Rien de plus</td><td>Environ 1 200 lignes sur votre PC</td></tr>
-    <tr><td>3</td><td>Envoi direct de la fiche, notification, validation sur le téléphone, suppression côté serveur</td><td><span class="port">TCP 21120</span></td><td>Environ 850 lignes de Python sur le serveur, plus la configuration de Home Assistant</td></tr>
+    <tr><td>1</td><td>Votre serveur RustDesk et un exe qui installe et règle RustDesk chez le client</td><td>Les ports RustDesk</td><td>Environ 860 lignes (PowerShell et C# de l'exe) côté client seulement</td></tr>
+    <tr><td>2</td><td>Mots de passe chiffrés, carnet de clients, connexion en un clic, icônes du bureau</td><td>Rien de plus</td><td>Environ 1 400 lignes sur votre PC</td></tr>
+    <tr><td>3</td><td>Envoi direct de la fiche, notification, validation sur le téléphone, suppression côté serveur</td><td><span class="port">TCP 21120</span></td><td>Environ 970 lignes de Python sur le serveur, plus la configuration de Home Assistant</td></tr>
   </tbody>
 </table>
 </div>
@@ -509,6 +509,7 @@ Restart-Service RustDesk
   <li>Le mot de passe doit faire au moins 12 caractères, sans espace.</li>
   <li>Il écrit un journal de démarrage dans <code>%TEMP%\…Setup.log</code> (options, droits, code de sortie, jamais les valeurs secrètes). Pas de journal après un double-clic veut dire que l'exe n'a pas démarré : SmartScreen ou antivirus.</li>
   <li>Options : <code>/silent</code> (aucune question, pour un déploiement par script), <code>/save</code>, <code>-Uninstall</code>.</li>
+  <li>Au niveau 3, après l'envoi de la fiche, il attend la validation du technicien puis se ferme tout seul (voir « Fermer la fenêtre du client à la validation »).</li>
 </ul>
 <h3>Hors ligne ou en ligne</h3>
 <div class="tablewrap">
@@ -578,8 +579,8 @@ Restart-Service RustDesk
   <thead><tr><th>Service</th><th>Utilisateur</th><th>Ce qu'il fait</th></tr></thead>
   <tbody>
     <tr><td>Exportateur</td><td>root, minuteur 15 s</td><td>Écrit <code>peers.json</code> et <code>registrations.json</code> en lecture seule pour les autres</td></tr>
-    <tr><td>Receveur</td><td><code>pg20-inbox</code>, sandbox systemd</td><td>Écoute en TLS sur 21120, valide, choisit le code, dépose la fiche chiffrée dans un dossier d'attente</td></tr>
-    <tr><td>Flux</td><td>sans droits, jeton Bearer</td><td>Sert la liste des postes, les fiches et les validations au réseau local et au VPN</td></tr>
+    <tr><td>Receveur</td><td><code>pg20-inbox</code>, sandbox systemd</td><td>Écoute en TLS sur 21120, valide, choisit le code, dépose la fiche chiffrée dans un dossier d'attente, garde ouvertes les demandes d'attente de validation</td></tr>
+    <tr><td>Flux</td><td>sans droits, jeton Bearer</td><td>Sert la liste des postes, les fiches et les validations au réseau local et au VPN, dépose le repère de validation pour l'exe en attente</td></tr>
     <tr><td>Oubli</td><td>root, déclenché par un fichier</td><td>Supprime un poste de la base (voir plus bas)</td></tr>
   </tbody>
 </table>
@@ -610,6 +611,17 @@ SystemCallFilter=@system-service
 LimitNOFILE=256
 TasksMax=64
 MemoryMax=128M</code></pre></figure>
+
+<h3>Fermer la fenêtre du client à la validation</h3>
+<p>À la fin de l'installation, la fenêtre de l'exe reste ouverte jusqu'à ce que vous validiez, puis se ferme toute seule. L'exe n'interroge pas le serveur toutes les quelques secondes : il fait une seule demande, que le serveur garde ouverte.</p>
+<ol>
+  <li>Avec le code de contrôle, le receveur renvoie un <b>numéro de suivi</b> aléatoire (32 caractères hexadécimaux), connu du seul exe qui vient d'envoyer la fiche. Il le range pendant 15 minutes dans <code>track/&lt;suivi&gt;.json</code>, avec l'ID et l'heure de réception.</li>
+  <li>L'exe envoie <code>POST /v1/wait</code> avec ce numéro. Le serveur <b>garde la demande ouverte 20 secondes au plus</b> et répond dès que la validation arrive. Sinon il répond « pas encore », et l'exe renouvelle la demande, pendant 10 minutes au plus.</li>
+  <li>À <code>POST /records/validate</code> (appelé par Home Assistant, ou par votre PC quand vous validez dans son carnet), le flux dépose <code>track/&lt;suivi&gt;.ok</code> à côté du suivi de la même fiche (même ID et même heure de réception). Le receveur voit ce repère en une demi-seconde.</li>
+  <li>L'exe affiche « Validé par le technicien », attend 3 secondes et se ferme. Il sort avec le code 10, que le lanceur C# reconnaît pour ne pas demander de touche.</li>
+</ol>
+<p>Garde-fous : un numéro inconnu ou expiré reçoit tout de suite la même réponse 409, il ne peut donc retenir aucune connexion. Au plus 8 attentes sont ouvertes en même temps, dont 2 par adresse (réponse 503 au-delà), et chaque adresse est limitée à 40 demandes par 10 minutes. Au bout de 10 minutes, ou si le serveur est injoignable, l'exe revient à son comportement habituel : un message, puis une touche à presser. Fermer la fenêtre à la main pendant l'attente est sans conséquence, car tout est déjà installé et envoyé.</p>
+<p>L'attente est limitée à 20 secondes par demande parce que certains pare-feu et certaines box coupent une connexion silencieuse au bout de 30 à 60 secondes : l'exe la renouvelle, ce qui donne trois demandes par minute au plus. Pour que le flux (utilisateur <code>nobody</code>) puisse déposer son repère dans le dossier du receveur, son unité systemd lui donne le groupe du receveur (<code>SupplementaryGroups=pg20-inbox</code>).</p>
 
 <h3>Installation sur la VM</h3>
 <p>Dans cet ordre : le flux d'abord (il crée le jeton), puis le receveur, puis le service d'oubli. Les scripts d'installation sont idempotents.</p>
@@ -868,6 +880,8 @@ sequence:
     <tr><td>Envoi de la fiche, notification, validation sur le téléphone</td><td><span class="st ok">Testé</span></td><td>Chaîne complète, code de contrôle identique des deux côtés</td></tr>
     <tr><td>Réception depuis Internet</td><td><span class="st ok">Testé</span></td><td>Appel du receveur depuis le téléphone en 4G</td></tr>
     <tr><td>Application de la validation par le PC, bulle Windows</td><td><span class="st ok">Testé</span></td><td>Tâche de fond sans fenêtre</td></tr>
+    <tr><td>Fermeture de la fenêtre du client à la validation sur le téléphone</td><td><span class="st ok">Testé</span></td><td>Essai réel : la fenêtre a attendu, puis s'est fermée 3 secondes après le toucher sur Valider. Côté serveur, vérifié aussi par des tests automatiques avec les vrais comptes système</td></tr>
+    <tr><td>Même fermeture quand on valide depuis le carnet du PC</td><td><span class="st part">Partiel</span></td><td>Vérifié par des tests automatiques, pas encore en réel (l'essai demande d'être à deux endroits à la fois : devant le PC du client et devant le carnet)</td></tr>
     <tr><td>Connexion en un clic, mot de passe prérempli</td><td><span class="st ok">Testé</span></td><td>Depuis le même réseau que le poste de test</td></tr>
     <tr><td>Suppression complète d'un client</td><td><span class="st ok">Testé</span></td><td>Sur un vrai poste de test, puis sur un poste fictif côté serveur</td></tr>
     <tr><td>VPN permanent du téléphone</td><td><span class="st ok">Testé</span></td><td>Bouton fonctionnel hors du réseau local</td></tr>
@@ -899,6 +913,7 @@ sequence:
   <li><b>Home Assistant ou le capteur à l'arrêt</b> : une fiche arrivée pendant ce temps n'est pas notifiée. Elle apparaît « À valider » dans l'outil du PC.</li>
   <li><b>Le PC du technicien doit être allumé</b> et joindre le serveur (réseau local ou VPN) pour relever les fiches. Sinon elles attendent, chiffrées, 14 jours sur le serveur.</li>
   <li>Le capteur ne lit que les 30 postes les plus récents.</li>
+  <li><b>Fermeture automatique de la fenêtre du client</b> : seule la validation d'une fiche arrivée du serveur la déclenche, pas celle d'un client importé depuis la clé USB. Valider depuis le PC ne ferme pas la notification du téléphone. Sans validation, la fenêtre attend 10 minutes au plus.</li>
   <li>Pas d'indicateur « en ligne » : hbbs ne publie pas cette information.</li>
   <li>Un seul technicien et une seule clé.</li>
   <li>Un certificat TLS régénéré oblige à reconstruire les exes.</li>

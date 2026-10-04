@@ -185,8 +185,9 @@ function New-Envelope($Record, [string]$PublicKeyXml) {
 
 # Un envoi : TLS 1.2 direct (sans proxy), certificat vérifié par EMPREINTE (pas par autorité), requête HTTP/1.0 minimale.
 # Renvoie status = code HTTP (0 = pas de réponse), error ('connect', 'certificate', 'tls', 'io') le cas échéant,
-# et code = code de contrôle à 4 chiffres choisi par le serveur (réponse 200).
-function Send-InboxOnce([string]$Endpoint, [string]$Pin, [string]$Body) {
+# et, pour une réponse 200, code = code de contrôle à 4 chiffres choisi par le serveur et follow = numéro de suivi (/v1/record), ou
+# validated = fiche validée par le technicien (/v1/wait : le serveur garde la demande ouverte 20 s au plus).
+function Send-InboxOnce([string]$Endpoint, [string]$Pin, [string]$Body, [string]$Path = '/v1/record', [int]$ReadTimeoutMs = 10000) {
     $hostName = $Endpoint; $port = 21120
     if ($Endpoint -match '^(?<h>[^:]+):(?<p>\d{1,5})$') { $hostName = $Matches.h; $port = [int]$Matches.p }
     $script:PinWanted = $Pin.ToLower()
@@ -195,7 +196,7 @@ function Send-InboxOnce([string]$Endpoint, [string]$Pin, [string]$Body) {
         $ar = $client.BeginConnect($hostName, $port, $null, $null)
         if (-not $ar.AsyncWaitHandle.WaitOne(8000)) { return [pscustomobject]@{ status = 0; error = 'connect' } }
         try { $client.EndConnect($ar) } catch { return [pscustomobject]@{ status = 0; error = 'connect' } }
-        $client.ReceiveTimeout = 10000; $client.SendTimeout = 10000
+        $client.ReceiveTimeout = $ReadTimeoutMs; $client.SendTimeout = 10000
 
         $callback = [Net.Security.RemoteCertificateValidationCallback]{
             param($sender, $cert, $chain, $errors)
@@ -211,7 +212,7 @@ function Send-InboxOnce([string]$Endpoint, [string]$Pin, [string]$Body) {
         }
 
         $bodyBytes = [Text.Encoding]::UTF8.GetBytes($Body)
-        $head = "POST /v1/record HTTP/1.0`r`nHost: $hostName`r`nContent-Type: application/json`r`nContent-Length: $($bodyBytes.Length)`r`nConnection: close`r`n`r`n"
+        $head = "POST $Path HTTP/1.0`r`nHost: $hostName`r`nContent-Type: application/json`r`nContent-Length: $($bodyBytes.Length)`r`nConnection: close`r`n`r`n"
         $headBytes = [Text.Encoding]::ASCII.GetBytes($head)
         $ssl.Write($headBytes, 0, $headBytes.Length); $ssl.Write($bodyBytes, 0, $bodyBytes.Length); $ssl.Flush()
 
@@ -219,9 +220,11 @@ function Send-InboxOnce([string]$Endpoint, [string]$Pin, [string]$Body) {
         try { while (($n = $ssl.Read($buf, 0, $buf.Length)) -gt 0 -and $ms.Length -lt 16384) { $ms.Write($buf, 0, $n) } } catch { }
         $text = [Text.Encoding]::UTF8.GetString($ms.ToArray())
         if ($text -match '^HTTP/\d\.\d\s+(?<c>\d{3})') {
-            $status = [int]$Matches.c; $ctl = ''
+            $status = [int]$Matches.c; $ctl = ''; $flw = ''; $val = $false
             if ($status -eq 200 -and $text -match '"code"\s*:\s*"(?<k>\d{4})"') { $ctl = $Matches.k }
-            return [pscustomobject]@{ status = $status; error = ''; code = $ctl }
+            if ($status -eq 200 -and $text -match '"follow"\s*:\s*"(?<f>[0-9a-f]{32})"') { $flw = $Matches.f }
+            if ($status -eq 200 -and $text -match '"validated"\s*:\s*true') { $val = $true }
+            return [pscustomobject]@{ status = $status; error = ''; code = $ctl; follow = $flw; validated = $val }
         }
         [pscustomobject]@{ status = 0; error = 'io'; code = '' }
     }
@@ -236,7 +239,7 @@ function Send-InboxRecord([string]$Endpoint, [string]$Pin, [string]$Id, [string]
     for ($i = 1; $i -le $MaxAttempts; $i++) {
         $r = Send-InboxOnce $Endpoint $Pin $body
         $last = $r.status
-        if ($r.status -eq 200) { return [pscustomobject]@{ ok = $true; message = ''; code = $r.code } }
+        if ($r.status -eq 200) { return [pscustomobject]@{ ok = $true; message = ''; code = $r.code; follow = $r.follow } }
         if ($r.error -eq 'certificate') { return [pscustomobject]@{ ok = $false; message = 'le certificat du serveur ne correspond pas à celui attendu (connexion refusée par sécurité)'; code = '' } }
         if ($r.status -eq 429) { return [pscustomobject]@{ ok = $false; message = 'trop de tentatives depuis cette adresse'; code = '' } }
         if ($r.status -in 400, 411, 413) { return [pscustomobject]@{ ok = $false; message = "fiche refusée par le serveur (code $($r.status))"; code = '' } }
@@ -250,6 +253,32 @@ function Send-InboxRecord([string]$Endpoint, [string]$Pin, [string]$Id, [string]
         return [pscustomobject]@{ ok = $false; code = ''; message = "le serveur n'a enregistré aucune nouvelle inscription récente de ce poste (ID $Id) : cas d'une réinstallation sur un PC déjà connu du serveur. La fiche reste sur la clé USB ; pour l'envoyer au serveur, retirez d'abord ce poste du serveur (sudo pg20-forget-peer $Id) puis relancez l'exe" }
     }
     [pscustomobject]@{ ok = $false; message = 'le serveur n''a pas répondu correctement à temps'; code = '' }
+}
+
+# Attend que le technicien valide la fiche : UNE demande que le serveur garde ouverte (20 s au plus) et qu'on renouvelle tant qu'il n'y a
+# pas de réponse, donc pas d'interrogation répétée toutes les quelques secondes. Renvoie 'validated', 'timeout' (délai dépassé),
+# 'unknown' (suivi expiré ou refusé) ou 'error' (serveur injoignable, occupé ou certificat inattendu : on n'insiste pas).
+function Wait-InboxValidation([string]$Endpoint, [string]$Pin, [string]$Follow, [int]$MaxSec = 600) {
+    $body = ConvertTo-Json -InputObject ([ordered]@{ v = 1; follow = $Follow }) -Compress
+    $deadline = (Get-Date).AddSeconds($MaxSec); $fails = 0
+    while ((Get-Date) -lt $deadline) {
+        $t0 = Get-Date
+        $r = Send-InboxOnce $Endpoint $Pin $body '/v1/wait' 35000
+        if ($r.status -eq 200) {
+            $fails = 0
+            if ($r.validated) { return 'validated' }
+        }
+        elseif ($r.status -eq 409) { return 'unknown' }
+        elseif ($r.error -eq 'certificate') { return 'error' }
+        else {
+            $fails++
+            if ($fails -ge 4) { return 'error' }
+        }
+        # une réponse rapide qui n'est pas « validée » ne doit jamais faire tourner la boucle à vide
+        $spent = ((Get-Date) - $t0).TotalSeconds
+        if ($spent -lt 10) { Start-Sleep -Seconds ([int][math]::Ceiling(10 - $spent)) }
+    }
+    'timeout'
 }
 
 function Get-InstallerFromGitHub([string]$Version) {
@@ -418,7 +447,7 @@ foreach ($opt in 'custom-rendezvous-server', 'approve-mode', 'verification-metho
 }
 
 # ---------------------------------------------------------------- Envoi de la fiche au serveur du technicien
-$inboxSent = $false; $controlCode = ''
+$inboxSent = $false; $controlCode = ''; $follow = ''
 if ($TechPublicKey -and $InboxUrl -and $InboxPin -and -not $NoInbox) {
     Write-Step 'Envoi de la fiche (chiffrée) à votre serveur'
     try {
@@ -428,11 +457,11 @@ if ($TechPublicKey -and $InboxUrl -and $InboxPin -and -not $NoInbox) {
             ver = $ver; ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
         }
         $sent = Send-InboxRecord -Endpoint $InboxUrl -Pin $InboxPin -Id $rdId -Label $ClientName -Blob (New-Envelope $record $TechPublicKey)
-        if ($sent.ok) { $inboxSent = $true; $controlCode = [string]$sent.code; Write-Ok 'Fiche reçue par votre serveur' }
+        if ($sent.ok) { $inboxSent = $true; $controlCode = [string]$sent.code; $follow = [string]$sent.follow; Write-Ok 'Fiche reçue par votre serveur' }
         else { Write-Warn "Fiche non envoyée : $($sent.message)." }
     }
     catch { Write-Warn "Fiche non envoyée : $($_.Exception.Message)." }
-    if (-not $inboxSent) { $controlCode = '' }
+    if (-not $inboxSent) { $controlCode = ''; $follow = '' }
 }
 
 # ---------------------------------------------------------------- Résultat
@@ -469,3 +498,17 @@ Write-Host '================================================' -ForegroundColor G
 if ($inboxSent) { Write-Warn 'Rien à noter : la fiche est arrivée sur le serveur du technicien, qui la validera depuis son téléphone avec le code de contrôle ci-dessus.' }
 elseif ($encrypted) { Write-Warn 'Rien à noter : branchez la clé sur votre PC et ouvrez Pg20-Clients, le client sera importé automatiquement.' }
 else { Write-Warn 'Transférez ces informations dans votre gestionnaire de mots de passe, puis supprimez le CSV s''il est sur une clé USB partagée.' }
+
+# ---------------------------------------------------------------- Attente de la validation du technicien
+# La fenêtre reste ouverte jusqu'à ce que le technicien valide la fiche depuis son téléphone, puis se ferme toute seule (code de sortie 10, que le
+# lanceur reconnaît). Pas d'attente en mode silencieux. Fermer la fenêtre avant n'a aucune conséquence : tout est déjà installé et envoyé.
+if ($inboxSent -and $follow -and $interactive) {
+    Write-Host ''
+    Write-Host "En attente de la validation du technicien... (vous pouvez aussi fermer cette fenêtre : l'installation est terminée)" -ForegroundColor Cyan
+    $outcome = try { Wait-InboxValidation -Endpoint $InboxUrl -Pin $InboxPin -Follow $follow } catch { 'error' }
+    switch ($outcome) {
+        'validated' { Write-Host 'Validé par le technicien. Cette fenêtre va se fermer.' -ForegroundColor Green; Start-Sleep -Seconds 3; exit 10 }
+        'timeout'   { Write-Warn "Le technicien n'a pas encore validé : il le fera depuis son téléphone. Vous pouvez fermer cette fenêtre." }
+        default     { Write-Warn 'Suivi de la validation indisponible : le technicien validera depuis son téléphone. Vous pouvez fermer cette fenêtre.' }
+    }
+}

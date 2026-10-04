@@ -10,6 +10,7 @@ GET  /records[?brief=1]    -> fiches reçues d'Internet par inbox-receive.py, en
                               du téléphone (brief=1 : sans la fiche chiffrée ni les validations, pour Home Assistant)
 POST /records/validate     -> {"id":"...","received_at":"..."} : le technicien a validé cette fiche depuis son téléphone
                               (appelé par Home Assistant ; le PC du technicien applique la décision à sa prochaine synchronisation)
+                              dépose aussi <suivi>.ok pour l'exe d'installation qui attend cette validation (voir inbox-receive.py)
 POST /records/ack          -> {"items":[{"id":"...","received_at":"..."}], "validated":[{"id":"...","received_at":"..."}]} :
                               efface les fiches (et les validations) que le PC du technicien a bien enregistrées, seulement si
                               received_at correspond : une fiche plus récente est conservée
@@ -34,6 +35,8 @@ from urllib.parse import parse_qs, urlsplit
 DATA = os.environ.get("PG20_FEED_DATA", "/var/lib/pg20-peers/peers.json")
 SPOOL = os.environ.get("PG20_INBOX_SPOOL", "/var/lib/pg20-inbox")
 VALIDATED = os.path.join(SPOOL, "validated")
+TRACK = os.path.join(SPOOL, "track")                      # suivis créés par inbox-receive.py : <suivi>.json ; on y dépose <suivi>.ok
+TRACK_FILE_RE = re.compile(r"^[0-9a-f]{32}\.json$")
 BIND = os.environ.get("PG20_FEED_BIND", "127.0.0.1")
 PORT = int(os.environ.get("PG20_FEED_PORT", "8099"))
 RECENT_TTL = int(os.environ.get("PG20_FEED_RECENT_TTL", "1800"))    # annonce gardée après le relevé de la fiche par le PC (ou jusqu'à sa validation)
@@ -152,6 +155,26 @@ def store_validation(pid, stamp):
         os.chmod(tmp, 0o660)
         os.replace(tmp, os.path.join(VALIDATED, pid + ".json"))
     return True
+
+
+def mark_followed(pid, stamp):
+    """Prévient l'exe d'installation qui attend cette validation : dépose <suivi>.ok à côté de <suivi>.json (fiche de même ID et même
+    heure de réception). Au mieux : un échec ici ne doit jamais empêcher la validation. Renvoie le nombre de suivis marqués."""
+    marked = 0
+    try:
+        names = [n for n in os.listdir(TRACK) if TRACK_FILE_RE.match(n)]
+    except OSError:
+        return 0
+    for n in names[:500]:
+        try:
+            with open(os.path.join(TRACK, n), "r", encoding="utf-8") as f:
+                t = json.load(f)
+            if t.get("id") == pid and t.get("received_at") == stamp:
+                os.close(os.open(os.path.join(TRACK, n[:-5] + ".ok"), os.O_WRONLY | os.O_CREAT, 0o660))
+                marked += 1
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+    return marked
 
 
 def store_forget(pid):
@@ -295,7 +318,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not stored:
                 return self._send(503, b'{"error": "full"}')
             forget_recent(body["id"], body["received_at"])
-            sys.stderr.write("validation reçue: id=%s\n" % body["id"])
+            followed = mark_followed(body["id"], body["received_at"])
+            sys.stderr.write("validation reçue: id=%s%s\n" % (body["id"], " (exe en attente prévenu)" if followed else ""))
             return self._send(200, b'{"ok": true}')
 
         deleted = 0
