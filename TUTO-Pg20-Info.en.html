@@ -1,0 +1,1124 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pg20 Info tutorial (English translation)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap">
+<style>
+/* Mise en page : une colonne de lecture étroite, sommaire collant à gauche (replié en haut sur téléphone), schéma en trois zones (client, serveur, technicien). */
+:root {
+  --bg: #F3F6F7;
+  --surface: #FFFFFF;
+  --fg: #13202A;
+  --muted: #51616C;
+  --line: #D5DEE3;
+  --accent: #0C6A73;
+  --accent-soft: #E1F0F2;
+  --on-accent: #FFFFFF;
+  --code-bg: #0E1A22;
+  --code-fg: #D9E5EC;
+  --code-dim: #8DA2B0;
+  --warn: #8F5200;
+  --warn-bg: #FFF3DC;
+  --warn-line: #E6C27A;
+  --danger: #A1281D;
+  --danger-bg: #FDEBE8;
+  --danger-line: #E5A39B;
+  --ok: #17653A;
+  --ok-bg: #E4F3EA;
+  --ok-line: #9CCFB0;
+  --font-display: 'Bricolage Grotesque', system-ui, 'Segoe UI', sans-serif;
+  --font-body: 'Source Sans 3', system-ui, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Consolas, 'Courier New', monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0D1317;
+    --surface: #141C22;
+    --fg: #E4EBEF;
+    --muted: #93A4AF;
+    --line: #27343D;
+    --accent: #5CC6CC;
+    --accent-soft: #14282C;
+    --on-accent: #06181A;
+    --code-bg: #0A1015;
+    --code-fg: #D4E0E7;
+    --code-dim: #7F93A0;
+    --warn: #F0B45A;
+    --warn-bg: #2A2112;
+    --warn-line: #5C4519;
+    --danger: #F28B82;
+    --danger-bg: #2D1614;
+    --danger-line: #6A3029;
+    --ok: #6FD09A;
+    --ok-bg: #12261B;
+    --ok-line: #285A3C;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0D1317;
+  --surface: #141C22;
+  --fg: #E4EBEF;
+  --muted: #93A4AF;
+  --line: #27343D;
+  --accent: #5CC6CC;
+  --accent-soft: #14282C;
+  --on-accent: #06181A;
+  --code-bg: #0A1015;
+  --code-fg: #D4E0E7;
+  --code-dim: #7F93A0;
+  --warn: #F0B45A;
+  --warn-bg: #2A2112;
+  --warn-line: #5C4519;
+  --danger: #F28B82;
+  --danger-bg: #2D1614;
+  --danger-line: #6A3029;
+  --ok: #6FD09A;
+  --ok-bg: #12261B;
+  --ok-line: #285A3C;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.6;
+}
+.page { max-width: 1140px; margin: 0 auto; padding-inline: 16px; padding-block: 28px 80px; }
+
+/* En-tête */
+.hero { padding-block: 8px 28px; border-bottom: 1px solid var(--line); margin-bottom: 28px; }
+.eyebrow { font: 600 0.78rem/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin: 0 0 14px; }
+h1 { font: 700 clamp(2.4rem, 7vw, 4rem)/1.02 var(--font-display); letter-spacing: -0.02em; margin: 0 0 14px; text-wrap: balance; }
+.lead { font-size: 1.22rem; line-height: 1.5; max-width: 52ch; margin: 0 0 20px; color: var(--fg); }
+.meta { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px 10px; }
+.meta li { font-size: 0.86rem; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 3px 12px; color: var(--muted); }
+.meta b { color: var(--fg); font-weight: 600; }
+
+/* Colonnes */
+.layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 24px; }
+@media (min-width: 1000px) {
+  .layout { grid-template-columns: 230px minmax(0, 1fr); gap: 56px; }
+  .toc { position: sticky; top: calc(20px + env(safe-area-inset-top, 0px)); align-self: start; max-height: calc(100vh - 40px); overflow-y: auto; }
+}
+.toc { font-size: 0.93rem; }
+.toc summary { cursor: pointer; font: 600 0.78rem/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 10px 0; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.toc a { display: block; padding: 5px 10px; border-radius: 6px; color: var(--fg); text-decoration: none; line-height: 1.3; }
+.toc a:hover { background: var(--accent-soft); }
+.toc a:focus-visible, .copy:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.toc .lvl { font-family: var(--font-mono); font-size: 0.7rem; color: var(--accent); display: inline-block; min-width: 2.3em; }
+@media (max-width: 999px) { .toc { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding-inline: 14px; } }
+
+/* Texte */
+article { min-width: 0; }
+article > section { padding-block: 8px 20px; scroll-margin-top: 16px; }
+h2 { font: 700 clamp(1.5rem, 4vw, 2.05rem)/1.15 var(--font-display); letter-spacing: -0.01em; margin: 36px 0 14px; text-wrap: balance; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; }
+h3 { font: 700 1.2rem/1.25 var(--font-display); margin: 30px 0 8px; text-wrap: balance; }
+h4 { font: 600 0.8rem/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); margin: 0 0 4px; }
+p, ul, ol { margin: 0 0 14px; }
+p, li { max-width: 70ch; }
+li { margin-bottom: 4px; }
+a { color: var(--accent); }
+.tag { font: 600 0.72rem/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; background: var(--accent); color: var(--on-accent); border-radius: 4px; padding: 4px 8px; }
+code { font-family: var(--font-mono); font-size: 0.86em; background: var(--accent-soft); border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
+.port { font: 400 0.8rem/1.4 var(--font-mono); border: 1px solid var(--line); background: var(--surface); border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+kbd { font: 600 0.8em var(--font-mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--surface); }
+
+/* Blocs de code */
+figure.code { margin: 0 0 18px; border-radius: 8px; overflow: hidden; background: var(--code-bg); }
+figure.code figcaption { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px 6px 14px; font: 400 0.76rem/1.2 var(--font-mono); color: var(--code-dim); border-bottom: 1px solid rgba(127,147,160,0.25); }
+.copy { font: 600 0.74rem/1 var(--font-mono); color: var(--code-fg); background: transparent; border: 1px solid rgba(127,147,160,0.45); border-radius: 5px; padding: 5px 9px; cursor: pointer; }
+.copy:hover { background: rgba(127,147,160,0.2); }
+figure.code pre { margin: 0; padding: 14px 16px; overflow-x: auto; color: var(--code-fg); font: 400 0.82rem/1.55 var(--font-mono); tab-size: 2; }
+figure.code code { background: none; padding: 0; font: inherit; overflow-wrap: normal; }
+
+/* Encadrés */
+.note { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 12px 16px; margin: 0 0 18px; max-width: 76ch; }
+.note > :last-child { margin-bottom: 0; }
+.note .label { display: block; font: 600 0.74rem/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px; }
+.note.danger { background: var(--danger-bg); border-color: var(--danger-line); }
+.note.danger .label { color: var(--danger); }
+.note.warn { background: var(--warn-bg); border-color: var(--warn-line); }
+.note.warn .label { color: var(--warn); }
+.note.ok { background: var(--ok-bg); border-color: var(--ok-line); }
+.note.ok .label { color: var(--ok); }
+.note.info .label { color: var(--accent); }
+
+/* Tableaux */
+.tablewrap { overflow-x: auto; margin: 0 0 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 600px; font-size: 0.94rem; line-height: 1.45; }
+th { text-align: left; font: 600 0.74rem/1.2 var(--font-mono); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td:first-child { font-weight: 600; }
+.st { display: inline-block; font: 600 0.72rem/1 var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; border-radius: 4px; padding: 4px 7px; white-space: nowrap; }
+.st.ok { background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-line); }
+.st.no { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-line); }
+.st.part { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-line); }
+
+/* Parcours numéroté (l'ordre est réel) */
+ol.steps { list-style: none; padding: 0; counter-reset: s; display: grid; gap: 10px; max-width: 76ch; }
+ol.steps > li { counter-increment: s; position: relative; padding: 12px 14px 12px 56px; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; margin: 0; max-width: none; }
+ol.steps > li::before { content: counter(s); position: absolute; left: 14px; top: 11px; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--on-accent); font: 700 0.9rem/28px var(--font-mono); text-align: center; }
+ol.steps b { font-weight: 700; }
+
+/* Schéma */
+.archwrap { container-type: inline-size; margin: 0 0 22px; }
+.arch { display: grid; grid-template-columns: 1fr auto 1.2fr auto 1fr; gap: 12px; align-items: stretch; }
+.zone { border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 14px; min-width: 0; }
+.zone.core { border-color: var(--accent); }
+.node { border: 1px dashed var(--line); border-radius: 6px; padding: 7px 10px; margin-top: 8px; font-size: 0.88rem; line-height: 1.4; }
+.node small { display: block; color: var(--muted); font-size: 0.78rem; }
+.node.open { border-style: solid; border-color: var(--danger-line); background: var(--danger-bg); }
+.node.lan { border-style: solid; border-color: var(--ok-line); background: var(--ok-bg); }
+.wire { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; font: 400 0.7rem/1.35 var(--font-mono); color: var(--muted); max-width: 118px; }
+.wire::after { content: "\2192"; font-size: 1.5rem; line-height: 1; color: var(--accent); }
+@container (max-width: 760px) {
+  .arch { grid-template-columns: minmax(0, 1fr); }
+  .wire { max-width: none; flex-direction: row; justify-content: flex-start; padding-inline: 8px; }
+  .wire::after { content: "\2193"; }
+}
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.82rem; color: var(--muted); margin-top: 10px; }
+.legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; border: 1px solid var(--line); }
+.legend .l-open::before { background: var(--danger-bg); border-color: var(--danger-line); }
+.legend .l-lan::before { background: var(--ok-bg); border-color: var(--ok-line); }
+
+footer { margin-top: 48px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+footer p { max-width: 76ch; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<div class="page">
+<header class="hero">
+  <p class="eyebrow">Tutorial · self-hosting · remote support</p>
+  <h1>Pg20 Info</h1>
+  <p class="lead">Your own RustDesk server, a one-double-click Windows installer, and client records that register themselves, encrypted, with validation from your phone.</p>
+  <ul class="meta">
+    <li><b>For</b>: a technician comfortable with Linux, networking and PowerShell</li>
+    <li><b>Tested on</b>: Windows 10, Debian 12 under Proxmox, Home Assistant, Android</li>
+    <li><b>Updated</b>: 4 October 2026</li>
+    <li><b>Status</b>: works for the author, no external audit</li>
+    <li><b>Language</b>: English translation of the French original</li>
+  </ul>
+</header>
+
+<div class="layout">
+<nav class="toc" aria-label="Contents">
+  <details id="toc">
+    <summary>Contents</summary>
+    <ol>
+      <li><a href="#principe">What it does</a></li>
+      <li><a href="#archi">Architecture</a></li>
+      <li><a href="#niveaux">The three levels</a></li>
+      <li><a href="#risques">Risks and safeguards</a></li>
+      <li><a href="#n1-serveur"><span class="lvl">L1</span>The RustDesk server</a></li>
+      <li><a href="#n1-exe"><span class="lvl">L1</span>The installer exe</a></li>
+      <li><a href="#n2"><span class="lvl">L2</span>Encrypted address book</a></li>
+      <li><a href="#n3"><span class="lvl">L3</span>Direct sending and phone</a></li>
+      <li><a href="#conditions">Terms and proof of acceptance</a></li>
+      <li><a href="#desinstaller">Uninstalling a client</a></li>
+      <li><a href="#suppression">Deleting a client</a></li>
+      <li><a href="#tests">What is tested</a></li>
+      <li><a href="#limites">Known limits</a></li>
+      <li><a href="#maintenance">Maintenance</a></li>
+      <li><a href="#alternatives">Alternatives</a></li>
+      <li><a href="#fichiers">Project files</a></li>
+    </ol>
+  </details>
+</nav>
+
+<article>
+
+<div class="note info">
+  <span class="label">This is a translation</span>
+  <p>This page is an <b>English translation</b> of the French original, <a href="TUTO-Pg20-Info.html">TUTO-Pg20-Info.html</a>, written for readers who do not read French. <b>The French version is the reference</b>: if the two ever disagree, the French one is right. The translation was produced with the help of an AI assistant and has not been proofread by a native speaker.</p>
+  <p>The scripts, the exe's screens and the tools' messages are in French, and so are the notification texts in the Home Assistant samples below (kept as they are in the kit's files). Only this documentation is translated.</p>
+</div>
+
+<div class="note danger">
+  <span class="label">Read this first</span>
+  <p>This setup opens ports to the Internet and gives permanent access to clients' computers. Go ahead only if you know how to maintain an exposed server, and only with each client's written agreement.</p>
+  <p>Levels 1 and 2 expose RustDesk only. Level 3 also exposes a small service written for this project, and installs a maintenance task on each client computer: these are the elements that add a risk of their own. You can stop at level 2.</p>
+</div>
+
+<h4>Values to replace</h4>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Written in this tutorial</th><th>Replace with</th></tr></thead>
+  <tbody>
+    <tr><td><code>&lt;PUBLIC_ADDRESS&gt;</code></td><td>Your fixed IP or, better, a DDNS name that points to your router</td></tr>
+    <tr><td><code>&lt;SERVER_PUBLIC_KEY&gt;</code></td><td>Contents of <code>data/id_ed25519.pub</code> on the server (a public key, not a secret)</td></tr>
+    <tr><td><code>&lt;IP_VM&gt;</code>, <code>&lt;IP_PASSERELLE&gt;</code></td><td>Addresses of the server machine and of its router (gateway) on your local network. These names are the ones used in the kit's files</td></tr>
+    <tr><td><code>&lt;RESEAU_LOCAL&gt;</code>, <code>&lt;RESEAU_WIREGUARD&gt;</code></td><td>Your subnets (local network, VPN network), for example <code>192.168.1.0/24</code> and the network of your VPN</td></tr>
+    <tr><td><code>&lt;TLS_FINGERPRINT&gt;</code></td><td>SHA-256 fingerprint of the receiving service's certificate (level 3)</td></tr>
+    <tr><td><code>&lt;FEED_TOKEN&gt;</code></td><td>Token generated on the server (level 3). Never paste it into a conversation or a forum</td></tr>
+    <tr><td><code>&lt;TELEPHONE&gt;</code></td><td>The notification service name of your Home Assistant mobile app (what follows <code>notify.mobile_app_</code>)</td></tr>
+  </tbody>
+</table>
+</div>
+
+<section id="principe">
+<h2>What it does</h2>
+<p>The goal: install RustDesk at a client's, then connect to it later without retyping an ID or a password. Here is one installation, from the technician's point of view on site.</p>
+<ol class="steps">
+  <li><b>The client double-clicks the exe</b> (USB key or link). Windows asks for administrator rights.</li>
+  <li><b>The client reads and accepts the terms</b>: a window shows the text, the client ticks the box and types a name. Without acceptance, nothing is installed. The acceptance (name, date, fingerprint of the text) is kept as proof.</li>
+  <li><b>The exe installs RustDesk</b>, configures it for your server with its key, and sets a permanent password of at least 12 characters, typed or generated. It also installs a small maintenance task, which can only uninstall RustDesk on an order signed by you.</li>
+  <li><b>The exe sends an encrypted record</b> (name, ID, password) to your server. The server cannot read it. It picks a 4-digit code, which the exe displays at the client's.</li>
+  <li><b>Your phone rings</b>: name, ID and code. You compare with the client's screen, then tap Validate. The window at the client's then shows "Validated" and closes by itself.</li>
+  <li><b>Your PC fetches the record</b>, decrypts it with a private key that never leaves your PC, and applies the validation.</li>
+  <li><b>A desktop icon "Connect"</b> lists the validated clients. One click opens RustDesk with the ID and password already filled in.</li>
+</ol>
+<p>The same address book lets you uninstall RustDesk at a client's with one click (the computer uninstalls itself, within half an hour, with nothing for the client to do) and delete a client everywhere in one gesture: PC, USB key and server.</p>
+<div class="note info">
+  <span class="label">What it does not do</span>
+  <ul>
+    <li>No "online" status for clients: the RustDesk server does not expose it.</li>
+    <li>Windows clients only (the exe). A macOS or Linux computer is configured by hand with the same options.</li>
+    <li>A single technician: the private key lives on one PC (plus a backup).</li>
+    <li>No code signing: Windows and some antivirus programs may distrust the exe.</li>
+    <li>No hidden remote control: the maintenance task installed at the client's can only uninstall RustDesk, and only on an order signed by your key. It is described to the client in the terms they accept.</li>
+  </ul>
+</div>
+</section>
+
+<section id="archi">
+<h2>Architecture</h2>
+<div class="archwrap">
+<div class="arch">
+  <div class="zone">
+    <h4>At the client's</h4>
+    <div class="node">Installer exe<small>installs, configures, encrypts the record</small></div>
+    <div class="node">RustDesk<small>Windows service, permanent password</small></div>
+    <div class="node">Maintenance task<small>uninstalls on a signed order, every 30 min</small></div>
+  </div>
+  <div class="wire">Internet<br>TCP 21115-21117<br>UDP 21116<br>TCP 21120</div>
+  <div class="zone core">
+    <h4>Your server (a VM)</h4>
+    <div class="node open">hbbs + hbbr (Docker)<small>RustDesk directory and relay</small></div>
+    <div class="node open">Record receiver, TLS<small>level 3, port 21120: records, validations, orders</small></div>
+    <div class="node lan">Feed (port 8099, token)<small>local network and VPN only</small></div>
+    <div class="node lan">Exporter, forget service<small>internal, no port</small></div>
+    <div class="node">nftables firewall<small>everything closed except what is listed</small></div>
+  </div>
+  <div class="wire">Local network<br>or VPN<br>TCP 8099</div>
+  <div class="zone">
+    <h4>At your place</h4>
+    <div class="node">Technician's PC<small>address book, private key, one-click connection</small></div>
+    <div class="node">Home Assistant<small>notification and Validate button</small></div>
+    <div class="node">Android phone<small>WireGuard VPN, Home Assistant app</small></div>
+  </div>
+</div>
+<div class="legend"><span class="l-open">Reachable from the Internet</span><span class="l-lan">Local network or VPN only</span></div>
+</div>
+
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Component</th><th>Where</th><th>Role</th><th>Port</th></tr></thead>
+  <tbody>
+    <tr><td><code>hbbs</code></td><td>VM, Docker</td><td>Directory of computers (ID, connection set-up)</td><td><span class="port">TCP 21115</span> <span class="port">TCP 21116</span> <span class="port">UDP 21116</span></td></tr>
+    <tr><td><code>hbbr</code></td><td>VM, Docker</td><td>Relay when a direct connection is impossible</td><td><span class="port">TCP 21117</span></td></tr>
+    <tr><td><code>inbox-receive.py</code></td><td>VM, dedicated user</td><td>Receives the encrypted records over TLS, serves the signed uninstall orders and receives their acknowledgements (level 3)</td><td><span class="port">TCP 21120</span></td></tr>
+    <tr><td><code>peers-export.py</code></td><td>VM, root, 15 s timer</td><td>Reads the hbbs SQLite database, writes JSON files</td><td>none</td></tr>
+    <tr><td><code>peers-feed.py</code></td><td>VM, unprivileged user</td><td>Serves the list of computers and the records to your PC and to Home Assistant, receives the signed orders from your PC, with a token</td><td><span class="port">TCP 8099</span> local</td></tr>
+    <tr><td><code>peers-forget.py</code></td><td>VM, root, triggered by a file</td><td>Deletes a computer from the hbbs database</td><td>none</td></tr>
+    <tr><td><code>Pg20-Clients.ps1</code></td><td>Technician's PC</td><td>Address book, decryption, connection, watcher, signing of uninstall orders</td><td>127.0.0.1 only</td></tr>
+    <tr><td><code>Pg20-Agent.ps1</code></td><td>At the client's, system account</td><td>Maintenance task: reads a signed uninstall order, verifies it, uninstalls RustDesk</td><td>outgoing <span class="port">TCP 21120</span></td></tr>
+  </tbody>
+</table>
+</div>
+</section>
+
+<section id="niveaux">
+<h2>The three levels</h2>
+<p>Build them in order and let each level run for a few days before moving to the next. The project is about 4,700 lines written for the occasion (PowerShell, C#, Python, HTML), split as follows.</p>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Level</th><th>What you get</th><th>What you expose</th><th>Home-made code</th></tr></thead>
+  <tbody>
+    <tr><td>1</td><td>Your RustDesk server and an exe that installs and configures RustDesk at the client's</td><td>The RustDesk ports</td><td>About 1,400 lines (PowerShell and C# of the exe, including the terms and the complete uninstallation), client side only</td></tr>
+    <tr><td>2</td><td>Encrypted passwords, client address book, one-click connection, desktop icons</td><td>Nothing more</td><td>About 1,800 lines on your PC</td></tr>
+    <tr><td>3</td><td>Direct sending of the record, notification, validation on the phone, server-side deletion, automatic remote uninstallation</td><td><span class="port">TCP 21120</span></td><td>About 1,200 lines of Python on the server, 250 lines of PowerShell for the maintenance task, plus the Home Assistant configuration</td></tr>
+  </tbody>
+</table>
+</div>
+<h3>What you need</h3>
+<ul>
+  <li>A machine for the server: a Debian 12 VM with 1 vCPU, 1 GB of RAM and 16 GB of disk is enough. Proxmox is not required, any Linux with Docker will do.</li>
+  <li>Access to your router to forward ports, and a stable public address (fixed IP or DDNS name).</li>
+  <li>A Windows 10 or 11 PC for the technician. PowerShell 5.1 and the C# compiler shipped with Windows are enough, nothing to install.</li>
+  <li>For level 3: Home Assistant, the Home Assistant mobile app on Android, and a WireGuard VPN to your place.</li>
+</ul>
+<p>For level 1, allow half a day once port forwarding is under control (estimate). Levels 2 and 3 take several days of fine-tuning, tests included.</p>
+</section>
+
+<section id="risques">
+<h2>Risks and safeguards</h2>
+<p>These points come before the steps so that you decide with full knowledge. Each line gives the risk, what limits it here, and what remains.</p>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Risk</th><th>What limits it</th><th>What remains</th></tr></thead>
+  <tbody>
+    <tr><td>The server is a central point</td><td>Dedicated VM, firewall closed by default, administration reserved to the local network and the VPN, automatic security updates, outgoing traffic to your local network forbidden</td><td>In RustDesk's model, the server takes part in the key exchange. A compromised server could place itself between you and your clients</td></tr>
+    <tr><td>A home-made service is reachable from the Internet (level 3)</td><td>Dedicated user, systemd sandbox, strict formats, rate limits, acceptance only from a computer that has just registered, nothing applied before your click</td><td>No independent audit. The code was written with the help of an AI assistant and then tested, which does not replace a security review by a third party</td></tr>
+    <tr><td>A maintenance task runs as the system account on every client computer (level 3)</td><td>Folder reserved to the system and administrators. A single possible order, "uninstall": the code is in the script, never received from the server. The order is signed by your PC's private key and verified (signature, computer's ID, dates, anti-replay). It is described to the client in the terms they accept, and the exe refuses to install it without them</td><td>Whoever stole your private key could uninstall your clients (and read the records). A compromised server could replay an order that was already signed and then cancelled: the effect remains uninstalling RustDesk. Some antivirus programs distrust a hidden task running as the system account. No independent audit</td></tr>
+    <tr><td>A permanent password per client gives lasting access</td><td>Password encrypted from the exe with your public key, never readable on the server. Private key protected by your Windows account (DPAPI)</td><td>On your PC, the password briefly appears in the <code>rustdesk://…?password=</code> link and in the clipboard (cleared after 30 s)</td></tr>
+    <tr><td>A fake record sent by a third party</td><td>The computer must be registered on your server with the same public address, less than 30 min ago. 4-digit control code compared with the client's screen. Manual validation</td><td>If you validate without comparing the code, the protection falls</td></tr>
+    <tr><td>The exe is not signed</td><td>Start-up log in <code>%TEMP%</code> to understand a block. The exe verifies the signature of the RustDesk installer before installing it</td><td>SmartScreen shows a warning ("Run anyway"). An antivirus may block silently. A signature requires a paid certificate</td></tr>
+    <tr><td>The server's address is frozen in each exe</td><td>Use a DDNS name rather than a raw IP</td><td>If the address changes and the name does not follow, all clients must be reconfigured</td></tr>
+    <tr><td>Loss of a key</td><td>Backup of <code>id_ed25519</code> (server) and of the technician's private key in a password manager</td><td>Without the server key, all clients must be reconfigured. Without the technician key, the received records are unreadable</td></tr>
+    <tr><td>Failure of the server, the router or Home Assistant</td><td>Fallback: the record stays encrypted on the USB key if sending fails</td><td>No notification until the chain is restored</td></tr>
+    <tr><td>Legal obligations and client trust</td><td>Terms accepted on screen by the client, with a recorded proof; information about the data kept; uninstallation procedure</td><td>Check what the law of your country requires (in Switzerland the nFADP, in the EU the GDPR). The terms template provided has not been reviewed by a lawyer, and the proof is a log kept by the tool, not an electronic signature. This tutorial is not legal advice</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>Security principles</h3>
+<ul>
+  <li><b>No secret in clear text on the server.</b> The server sees the ID, the name (for the notification), the address and the time. Never the password.</li>
+  <li><b>Three anchors frozen in the exe</b>: the RustDesk server key, your technician public key, and the fingerprint of the receiver's TLS certificate. No certificate authority, no proxy.</li>
+  <li><b>A human validates.</b> A received record replaces nothing until you validate, even for an already known client.</li>
+  <li><b>A single possible order at the client's: uninstall.</b> It is signed with your PC's private key; the server carries it without being able to forge or alter one.</li>
+  <li><b>Least privilege.</b> Each service has its own user and sees only what it needs. Only two small services run as root, with no open port.</li>
+  <li><b>Every risky change is reversible</b>: database copy before any deletion, automatic rollback for the firewall, tests on an isolated instance before production.</li>
+</ul>
+</section>
+
+<section id="n1-serveur">
+<h2><span class="tag">Level 1</span>The RustDesk server</h2>
+
+<h3>The machine</h3>
+<p>Create a dedicated Debian 12 VM. With Proxmox, the Debian cloud image and cloud-init give a VM ready at first boot: administrator account with SSH key only, automatic updates, Docker. With another host, install Debian by hand and then Docker following the official documentation.</p>
+<figure class="code"><figcaption>cloud-init (excerpt): SSH access by key only</figcaption><pre><code>#cloud-config
+hostname: rd-serveur
+timezone: Europe/Zurich
+users:
+  - name: &lt;ADMIN&gt;
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - &lt;YOUR_SSH_PUBLIC_KEY&gt;
+ssh_pwauth: false
+disable_root: true</code></pre></figure>
+<p>Then install: <code>nftables</code>, <code>unattended-upgrades</code>, <code>qemu-guest-agent</code> (under Proxmox) and Docker with the Compose plugin. Cockpit is a convenience for running commands from a browser, not a requirement.</p>
+
+<h3>RustDesk in Docker</h3>
+<p>Two containers: <code>hbbs</code> (directory) and <code>hbbr</code> (relay). The <code>-k _</code> option forces them to refuse any client that does not present the server's key: without it, anyone could register.</p>
+<figure class="code"><figcaption>docker-compose.yml</figcaption><pre><code>services:
+  hbbs:
+    container_name: rd-hbbs
+    image: rustdesk/rustdesk-server:latest
+    command: hbbs -r ${RD_HOST:?Renseignez RD_HOST dans .env}:21117 -k _
+    volumes:
+      - ./data:/root
+    network_mode: host
+    depends_on:
+      - hbbr
+    restart: unless-stopped
+
+  hbbr:
+    container_name: rd-hbbr
+    image: rustdesk/rustdesk-server:latest
+    command: hbbr -k _
+    volumes:
+      - ./data:/root
+    network_mode: host
+    restart: unless-stopped</code></pre></figure>
+<figure class="code"><figcaption>Start-up and retrieving the key</figcaption><pre><code>printf 'RD_HOST=&lt;PUBLIC_ADDRESS&gt;\n' &gt; .env
+docker compose up -d
+cat data/id_ed25519.pub        # public key: to give to the clients</code></pre></figure>
+<div class="note warn">
+  <span class="label">Back up now</span>
+  <p>Copy <code>data/id_ed25519</code> (the server's private key) into your password manager. If you lose it, every installed client will have to be reconfigured. Once the set-up is validated, replace <code>latest</code> with a specific version number so that updates remain under your control.</p>
+</div>
+
+<h3>Ports and the router</h3>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Port</th><th>Use</th><th>To forward</th></tr></thead>
+  <tbody>
+    <tr><td><span class="port">TCP 21115</span></td><td>NAT type test</td><td>Yes</td></tr>
+    <tr><td><span class="port">TCP 21116</span> <span class="port">UDP 21116</span></td><td>Registration and connection set-up</td><td>Yes, both protocols</td></tr>
+    <tr><td><span class="port">TCP 21117</span></td><td>Relay</td><td>Yes</td></tr>
+    <tr><td><span class="port">TCP 21118-21119</span></td><td>Web client, not used here</td><td>No</td></tr>
+  </tbody>
+</table>
+</div>
+<p>If you have two routers in series (the operator's box, then your own router), forwarding is done on each: box to router, router to the VM. Test from outside, for example with a phone on 4G. For TCP ports, <code>Test-NetConnection &lt;PUBLIC_ADDRESS&gt; -Port 21116</code> from a PC away from home. UDP cannot be tested this way: the real test is a RustDesk session between two different networks.</p>
+
+<h3>The VM's firewall</h3>
+<p>Default policy: everything is refused inbound. RustDesk is open to the Internet. SSH and Cockpit answer only to the local network and the VPN. Outbound, the VM reaches the gateway (DNS) and the Internet, but no other device on your network: if the server were compromised, it could not pivot to your machines. IPv6 is disabled, because systemd-networkd re-enables it at each boot and a simple <code>sysctl</code> setting does not hold.</p>
+<figure class="code"><figcaption>/etc/nftables.d/pg20.nft</figcaption><pre><code>#!/usr/sbin/nft -f
+table inet pg20
+delete table inet pg20
+
+table inet pg20 {
+  chain input {
+    type filter hook input priority 0; policy drop;
+
+    iifname "lo" accept
+    ct state established,related accept
+    ct state invalid drop
+    meta nfproto ipv6 icmpv6 type { nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } accept
+    meta nfproto ipv6 drop
+    ip protocol icmp icmp type { echo-request, destination-unreachable, time-exceeded } accept
+
+    # RustDesk: open to the Internet, IPv4 only
+    tcp dport { 21115, 21116, 21117 } accept
+    udp dport 21116 accept
+
+    # Administration: local network and VPN only (9090 = Cockpit, optional)
+    ip saddr { &lt;RESEAU_LOCAL&gt;, &lt;RESEAU_WIREGUARD&gt; } tcp dport { 22, 9090 } accept
+  }
+
+  chain output {
+    type filter hook output priority 0; policy accept;
+
+    oifname "lo" accept
+    ct state established,related accept
+    meta nfproto ipv6 icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept
+    meta nfproto ipv6 drop
+
+    # Isolation: the gateway and the Internet, but no other device of the local network
+    ip daddr &lt;IP_PASSERELLE&gt; accept
+    ip daddr { &lt;RESEAU_LOCAL&gt;, &lt;RESEAU_WIREGUARD&gt; } drop
+  }
+}</code></pre></figure>
+<p>To apply a firewall rule remotely without risking locking yourself out, schedule a rollback before applying, then cancel it once everything answers. This is a pattern to adapt to your system.</p>
+<figure class="code"><figcaption>Applying with automatic rollback</figcaption><pre><code>sudo cp /etc/nftables.d/pg20.nft /root/pg20.nft.bak     # old version
+sudo systemd-run --unit=pg20-rollback --on-active=120 /usr/sbin/nft -f /root/pg20.nft.bak
+sudo nft -f /etc/nftables.d/pg20.nft
+# everything works (SSH, RustDesk ports)? cancel the rollback:
+sudo systemctl stop pg20-rollback.timer</code></pre></figure>
+<p>Have this file loaded at boot (for example with a line <code>include "/etc/nftables.d/*.nft"</code> in <code>/etc/nftables.conf</code> and <code>systemctl enable nftables</code>), then check after a VM reboot that the rules are there.</p>
+
+<h3>Configuring a first computer by hand</h3>
+<p>Before automating, validate the chain on one PC. Install RustDesk (version 1.5.0 tested), then, in an administrator PowerShell:</p>
+<figure class="code"><figcaption>Administrator PowerShell</figcaption><pre><code>$rd = Join-Path $env:ProgramFiles 'RustDesk\rustdesk.exe'
+# rustdesk.exe is a graphical application: "| Out-String" forces PowerShell to wait for it to finish
+&amp; $rd --option custom-rendezvous-server &lt;PUBLIC_ADDRESS&gt; | Out-String
+&amp; $rd --option relay-server &lt;PUBLIC_ADDRESS&gt; | Out-String
+&amp; $rd --option key "&lt;SERVER_PUBLIC_KEY&gt;" | Out-String
+&amp; $rd --password "&lt;PASSWORD_12_CHARS_MINIMUM&gt;" | Out-String
+&amp; $rd --option approve-mode password | Out-String
+&amp; $rd --option verification-method use-permanent-password | Out-String
+Restart-Service RustDesk
+&amp; $rd --get-id | Out-String       # the ID to write down</code></pre></figure>
+<p>Configure RustDesk on your own PC with the same server and key (Settings, Network), then connect to the ID. In <code>docker compose logs hbbs</code>, you must see the computer register. Do this test <b>from another network</b>: it is what proves that the port forwarding is right.</p>
+</section>
+
+<section id="n1-exe">
+<h2><span class="tag">Level 1</span>The installer exe</h2>
+<p>The client must not configure anything. A Windows launcher embeds the installation script and the frozen values (server, key). The client double-clicks and answers two questions: their name, and a permanent password (Enter to generate one).</p>
+
+<h3>How it is built</h3>
+<ul>
+  <li>A small C# program compiled with the compiler shipped with Windows (<code>csc.exe</code>, C# 5): nothing to install. It carries a <code>requireAdministrator</code> manifest.</li>
+  <li>It embeds a PowerShell script that installs RustDesk silently, installs and starts the service, applies the server and the key, sets the password, then checks the result.</li>
+  <li>It refuses to install a RustDesk installer whose Authenticode signature is not valid.</li>
+  <li>The password must be at least 12 characters, without spaces.</li>
+  <li>It writes a start-up log to <code>%TEMP%\…Setup.log</code> (options, rights, exit code, never the secret values). No log after a double-click means the exe did not start: SmartScreen or antivirus.</li>
+  <li>Before any installation, it can display installation terms that the client must accept (see "Terms and proof of acceptance"). Without acceptance, nothing is installed.</li>
+  <li>Options: <code>/silent</code> (no question, for scripted deployment; requires <code>/accept</code> if a text is embedded), <code>/accept</code>, <code>/save</code>, <code>-Uninstall</code> (complete uninstallation, see "Uninstalling a client").</li>
+  <li>At level 3, after sending the record, it waits for the technician's validation and then closes by itself (see "Closing the client's window on validation").</li>
+  <li>At level 3, with accepted terms, it also installs the maintenance task (see "Uninstalling a client"). <code>-NoAgent</code> at build time does without it.</li>
+</ul>
+<h3>Offline or online</h3>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Variant</th><th>Size</th><th>Principle</th></tr></thead>
+  <tbody>
+    <tr><td>Offline</td><td>About 25 MB</td><td>Embeds the RustDesk installer: no access to GitHub at the client's</td></tr>
+    <tr><td>Online</td><td>About 40 KB</td><td>Downloads RustDesk from GitHub at installation time</td></tr>
+  </tbody>
+</table>
+</div>
+<figure class="code"><figcaption>Build (PowerShell, on your PC)</figcaption><pre><code># offline: embed the RustDesk installer downloaded beforehand
+.\Build-Installer.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe `
+  -Server &lt;PUBLIC_ADDRESS&gt; -Key "&lt;SERVER_PUBLIC_KEY&gt;" `
+  -Output .\dist\Support-Offline.exe
+
+# online: the same command without -InstallerFile
+.\Build-Installer.ps1 -Server &lt;PUBLIC_ADDRESS&gt; -Key "&lt;SERVER_PUBLIC_KEY&gt;" `
+  -Output .\dist\Support.exe</code></pre></figure>
+<p>At this stage (level 1), the password and the ID appear on the client's screen at the end: write them down. The next levels replace this manual step.</p>
+</section>
+
+<section id="n2">
+<h2><span class="tag">Level 2</span>Encrypted address book on your PC</h2>
+<p>This level removes note-taking. The exe encrypts the password with your public key, writes the record to the USB key, and a tool on your PC reads it.</p>
+
+<h3>Your technician key</h3>
+<p><code>Setup-Technician.ps1</code> creates an RSA-2048 key pair. The private key stays in <code>%APPDATA%\…\technician.key</code>, protected by your Windows account (DPAPI). The public key, <code>technician.pub.xml</code>, is built into the exes. It is passed to <code>Build-Installer.ps1</code> with <code>-TechnicianPublicKey</code>.</p>
+<figure class="code"><figcaption>Backing up the private key</figcaption><pre><code>.\Setup-Technician.ps1                    # creates the key if it does not exist
+.\Setup-Technician.ps1 -ExportBackup      # displays the key: store it in a password manager
+.\Setup-Technician.ps1 -VerifyBackup      # checks that the pasted backup is complete
+.\Setup-Technician.ps1 -RestoreFromBackup # new PC or reinstalled Windows</code></pre></figure>
+<div class="note warn">
+  <span class="label">The backup is mandatory</span>
+  <p>DPAPI ties the key to your Windows profile. A reinstalled Windows or a lost profile makes all the records unreadable, unless you have the backup.</p>
+</div>
+
+<h3>The record format</h3>
+<p>A classic hybrid encryption scheme, with authentication:</p>
+<ol>
+  <li>The exe randomly draws an AES-256 key and an HMAC key (64 bytes in total).</li>
+  <li>These two keys are encrypted with your public key (RSA-OAEP).</li>
+  <li>The record (name, computer, ID, password) is encrypted in AES-256-CBC with a random 16-byte IV.</li>
+  <li>An HMAC-SHA256 protects the whole. Your PC <b>verifies the HMAC before decrypting</b>, and discards any record that was modified or made for another key.</li>
+</ol>
+
+<h3>The technician's tool</h3>
+<ul>
+  <li><b>A local web page</b> served on <code>127.0.0.1</code> only, with a random token per session, a Host header check and a CSP policy. The page never receives passwords. It stops by itself after 45 min of inactivity.</li>
+  <li><b>One-click connection</b>: the <code>rustdesk://connection/new/&lt;ID&gt;?password=…</code> link opens RustDesk with the ID and password already filled in.</li>
+  <li><b>A small "Connect" window</b> (WinForms), with keyboard search, shows only validated clients. It also carries the "Uninstall…" and "Delete…" buttons.</li>
+  <li><b>Two desktop icons</b> (the quick window and the full page), launched without a console.</li>
+  <li><b>A scheduled watcher task</b> with your rights, without a window (<code>conhost --headless</code>), a single instance. It reads the USB key, fetches the records from the server, applies the phone validations, and shows a Windows balloon for each new record. Its log never contains a password.</li>
+  <li><b>A shared lock</b> (mutex) protects the address book: the page and the watcher can work at the same time without overwriting each other.</li>
+</ul>
+<p>With this level, the fallback is the USB key: plugged into your PC, it is imported by itself, and new computers show as "To validate".</p>
+</section>
+
+<section id="n3">
+<h2><span class="tag">Level 3</span>Direct sending and phone</h2>
+<p>The record goes straight from the exe to your server, without a USB key. A notification arrives on your phone and you validate with one button. This is the most convenient level and the only one that exposes home-made code to the Internet.</p>
+
+<h3>The principle, server side</h3>
+<p>The RustDesk server does not say when a computer registered. A small exporter therefore reads the hbbs SQLite database every 15 seconds, keeps a fingerprint (uuid, key, address) of each computer, and notes the moment it changes. This date serves as proof: a record is accepted only from a computer that has just installed itself.</p>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Service</th><th>User</th><th>What it does</th></tr></thead>
+  <tbody>
+    <tr><td>Exporter</td><td>root, 15 s timer</td><td>Writes <code>peers.json</code> and <code>registrations.json</code>, read-only for the others</td></tr>
+    <tr><td>Receiver</td><td><code>pg20-inbox</code>, systemd sandbox</td><td>Listens over TLS on 21120, validates, picks the code, drops the encrypted record in a waiting folder, keeps open the requests waiting for validation, serves the uninstall orders and receives their acknowledgements</td></tr>
+    <tr><td>Feed</td><td>unprivileged, Bearer token</td><td>Serves the list of computers, the records and the validations to the local network and the VPN, drops the validation marker for the waiting exe, receives the signed orders</td></tr>
+    <tr><td>Forget service</td><td>root, triggered by a file</td><td>Deletes a computer from the database (see below)</td></tr>
+  </tbody>
+</table>
+</div>
+
+<h3>The receiver's rules</h3>
+<ul>
+  <li>TLS 1.2 minimum, with a self-signed certificate whose fingerprint is frozen in the exe: the exe sends only to that certificate.</li>
+  <li>Strict JSON, 4 KB at most, encrypted record of 100 to 3,000 base64 characters, numeric ID.</li>
+  <li>The computer must be registered on hbbs <b>with the same public address as the request</b>, less than 30 minutes ago.</li>
+  <li>12 requests per 10 minutes per address, 100 per hour in total, 50 records waiting at most, purge after 14 days.</li>
+  <li>Identical answer (409) for any unknown computer: the service does not reveal which IDs exist.</li>
+  <li>The <b>server</b> draws the 4-digit control code and returns it to the exe, which displays it at the client's. A fake record gets a code that appears on no client's screen.</li>
+</ul>
+<p>The service runs locked down by systemd. Excerpt of the unit:</p>
+<figure class="code"><figcaption>pg20-inbox.service (excerpt)</figcaption><pre><code>User=pg20-inbox
+StateDirectory=pg20-inbox
+ReadOnlyPaths=/var/lib/pg20-peers
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+LimitNOFILE=256
+TasksMax=64
+MemoryMax=128M</code></pre></figure>
+
+<h3>Closing the client's window on validation</h3>
+<p>At the end of the installation, the exe's window stays open until you validate, then closes by itself. The exe does not poll the server every few seconds: it makes a single request, which the server keeps open.</p>
+<ol>
+  <li>With the control code, the receiver returns a random <b>tracking number</b> (32 hexadecimal characters), known only to the exe that has just sent the record. It stores it for 15 minutes in <code>track/&lt;tracking&gt;.json</code>, with the ID and the reception time.</li>
+  <li>The exe sends <code>POST /v1/wait</code> with this number. The server <b>keeps the request open for 20 seconds at most</b> and answers as soon as the validation arrives. Otherwise it answers "not yet", and the exe renews the request, for 10 minutes at most.</li>
+  <li>On <code>POST /records/validate</code> (called by Home Assistant, or by your PC when you validate in its address book), the feed drops <code>track/&lt;tracking&gt;.ok</code> next to the tracking file of the same record (same ID and same reception time). The receiver sees this marker within half a second.</li>
+  <li>The exe displays "Validated by the technician", waits 3 seconds and closes. It exits with code 10, which the C# launcher recognises in order not to ask for a key press.</li>
+</ol>
+<p>Safeguards: an unknown or expired number immediately gets the same 409 answer, so it cannot hold any connection. At most 8 waits are open at the same time, 2 per address (503 beyond that), and each address is limited to 40 requests per 10 minutes. After 10 minutes, or if the server is unreachable, the exe goes back to its usual behaviour: a message, then a key to press. Closing the window by hand during the wait has no consequence, since everything is already installed and sent.</p>
+<p>The wait is limited to 20 seconds per request because some firewalls and routers cut a silent connection after 30 to 60 seconds: the exe renews it, which makes three requests per minute at most. For the feed (user <code>nobody</code>) to be able to drop its marker in the receiver's folder, its systemd unit gives it the receiver's group (<code>SupplementaryGroups=pg20-inbox</code>).</p>
+
+<h3>Installation on the VM</h3>
+<p>In this order: the feed first (it creates the token), then the receiver, then the forget service. The install scripts are idempotent.</p>
+<figure class="code"><figcaption>On the VM, from the services folder</figcaption><pre><code>sudo ./install-feed.sh      # exporter + feed, generates the token in /etc/pg20/feed.token
+sudo ./install-inbox.sh     # receiver, generates the TLS certificate (valid 10 years)
+sudo ./install-forget.sh    # forget service
+
+# certificate fingerprint to freeze in the exe
+openssl x509 -in /etc/pg20/inbox.crt -outform DER | sha256sum</code></pre></figure>
+<p>Then open port 21120 in the VM's firewall, and forward <span class="port">TCP 21120</span> on the router box and your router. The feed's port 8099 stays reserved to the local network and the VPN.</p>
+<figure class="code"><figcaption>Additions to the VM's firewall</figcaption><pre><code># in the table, before the chains
+set inbox_flood {
+  type ipv4_addr
+  flags dynamic, timeout
+  timeout 10m
+  size 4096
+}
+
+# in the input chain, after the RustDesk rules
+tcp dport 21120 ct state new add @inbox_flood { ip saddr limit rate over 30/minute burst 15 packets } drop
+tcp dport 21120 accept
+
+# the administration rule gains port 8099 (local and VPN only)
+ip saddr { &lt;RESEAU_LOCAL&gt;, &lt;RESEAU_WIREGUARD&gt; } tcp dport { 22, 9090, 8099 } accept</code></pre></figure>
+<p>Test from outside (phone on 4G or another network). The certificate is self-signed, hence <code>-k</code>:</p>
+<figure class="code"><figcaption>Test</figcaption><pre><code>curl -k https://&lt;PUBLIC_ADDRESS&gt;:21120/v1/ping
+# expected answer: {"ok": true}</code></pre></figure>
+<p>Finally, rebuild the exes with the technician key and the fingerprint:</p>
+<figure class="code"><figcaption>Rebuilding the exe</figcaption><pre><code>.\Build-Installer.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe `
+  -Server &lt;PUBLIC_ADDRESS&gt; -Key "&lt;SERVER_PUBLIC_KEY&gt;" `
+  -TechnicianPublicKey .\technician.pub.xml -InboxPin &lt;TLS_FINGERPRINT&gt; `
+  -TermsFile .\conditions\conditions-YYYY-MM-DD.txt `
+  -Output .\dist\Support-Offline.exe</code></pre></figure>
+<p><code>-TermsFile</code> is optional in general, but <b>mandatory to embed the maintenance task</b>: the build refuses otherwise, because you do not install on a client's computer a component they could not read. See the next two sections.</p>
+<div class="note warn">
+  <span class="label">If the certificate changes</span>
+  <p>A rebuilt VM regenerates the certificate, hence the fingerprint. All the exes already distributed will no longer be able to send a record until you rebuild them.</p>
+</div>
+
+<h3 id="ha">Home Assistant</h3>
+<p>Home Assistant acts as a bridge to the phone. It polls the VM's feed every 30 seconds, notifies, and relays the Validate button. The VM itself has no access to Home Assistant. The notification texts and aliases in the samples below are left in French, as in the kit's files: translate them to taste.</p>
+<p><b>1. The secret.</b> In <code>secrets.yaml</code>, the value contains the word "Bearer" followed by the token read with <code>sudo cat /etc/pg20/feed.token</code> on the VM:</p>
+<figure class="code"><figcaption>secrets.yaml</figcaption><pre><code>pg20_feed_bearer: "Bearer &lt;FEED_TOKEN&gt;"</code></pre></figure>
+<p><b>2. The sensor.</b> In <code>configuration.yaml</code> (or your REST sensors file). The feed adds <code>pending_label</code>, <code>pending_code</code> and <code>pending_since</code> to the computers whose record is waiting. Neither the password nor the encrypted record goes through it.</p>
+<figure class="code"><figcaption>configuration.yaml</figcaption><pre><code>rest:
+  - resource: http://&lt;IP_VM&gt;:8099/peers?limit=30
+    scan_interval: 30
+    timeout: 8
+    headers:
+      Authorization: !secret pg20_feed_bearer
+    sensor:
+      - name: "RustDesk postes enregistrés"
+        unique_id: pg20_rustdesk_postes_enregistres
+        value_template: "{{ value_json.count }}"
+        json_attributes:
+          - peers
+          - generated_at</code></pre></figure>
+<p><b>3. The validation command.</b> REST commands can only be declared in YAML, and are not reloaded on the fly: restart Home Assistant after adding it. This is the only manual addition in the whole configuration, the rest is created in the interface.</p>
+<figure class="code"><figcaption>configuration.yaml</figcaption><pre><code>rest_command:
+  pg20_valider:
+    url: "http://&lt;IP_VM&gt;:8099/records/validate"
+    method: post
+    headers:
+      Authorization: !secret pg20_feed_bearer
+    content_type: "application/json"
+    payload: '{"id": "{{ id }}", "received_at": "{{ received_at }}"}'
+    timeout: 8</code></pre></figure>
+<p><b>4. The notification.</b> A new record triggers a notification with the name, the ID and the code. Tapping the notification opens the validation page. The action button carries the record's ID and time, so that the validation applies only to that exact record.</p>
+<figure class="code"><figcaption>"Record received" automation</figcaption><pre><code>alias: "RustDesk : fiche d'installation reçue"
+mode: queued
+triggers:
+  - trigger: state
+    entity_id: sensor.rustdesk_postes_enregistres
+    attribute: peers
+actions:
+  - variables:
+      old_stamps: "{{ trigger.from_state.attributes.peers | default([]) | selectattr('pending_since', 'defined') | map(attribute='pending_since') | list }}"
+  - variables:
+      new_records: "{{ [] if (trigger.from_state is none or trigger.from_state.attributes.peers is not defined) else (trigger.to_state.attributes.peers | default([]) | selectattr('pending_since', 'defined') | rejectattr('pending_since', 'in', old_stamps) | list) }}"
+  - repeat:
+      for_each: "{{ new_records }}"
+      sequence:
+        - action: notify.mobile_app_&lt;TELEPHONE&gt;
+          data:
+            title: "RustDesk : fiche reçue"
+            message: "{{ repeat.item.pending_label }} vient de s'installer (ID {{ repeat.item.id }}). Code de contrôle : {{ repeat.item.pending_code }}. Touchez pour ouvrir la validation."
+            data:
+              tag: "rustdesk-fiche-{{ repeat.item.id }}"
+              ttl: 0
+              priority: high
+              clickAction: /pg20-info/fiches
+              actions:
+                - action: "PG20_VALIDER__{{ repeat.item.id }}__{{ repeat.item.pending_since }}"
+                  title: "Valider"</code></pre></figure>
+<p><b>5. The notification button.</b> The mobile app sends back the <code>mobile_app_notification_action</code> event. The condition checks the exact format of the action before calling the server.</p>
+<figure class="code"><figcaption>"Validate from the phone" automation</figcaption><pre><code>alias: "RustDesk : valider une fiche depuis le téléphone"
+mode: queued
+triggers:
+  - trigger: event
+    event_type: mobile_app_notification_action
+conditions:
+  - "{{ trigger.event.data.action | default('') | string | regex_match('^PG20_VALIDER__[0-9]{6,12}__[0-9T:.-]+Z$') }}"
+actions:
+  - variables:
+      parts: "{{ trigger.event.data.action.split('__') }}"
+  - variables:
+      rid: "{{ parts[1] }}"
+      since: "{{ parts[2] }}"
+  - action: rest_command.pg20_valider
+    data:
+      id: "{{ rid }}"
+      received_at: "{{ since }}"
+    response_variable: res
+    continue_on_error: true
+  - if:
+      - "{{ res is defined and res is not none and res.status | default(0) == 200 }}"
+    then:
+      - action: notify.mobile_app_&lt;TELEPHONE&gt;
+        data:
+          message: clear_notification
+          data:
+            tag: "rustdesk-fiche-{{ rid }}"
+      - action: homeassistant.update_entity
+        target:
+          entity_id: sensor.rustdesk_postes_enregistres
+    else:
+      - action: notify.mobile_app_&lt;TELEPHONE&gt;
+        data:
+          title: "RustDesk : validation non envoyée"
+          message: "La validation de l'ID {{ rid }} n'a pas pu être envoyée (VPN actif ? serveur joignable ?)."
+          data:
+            tag: "rustdesk-erreur-{{ rid }}"</code></pre></figure>
+<p><b>6. The validation page.</b> Two scripts and a dashboard. The first validates the most recent waiting record and closes its notification. The second calls it then sends the phone back to its home screen.</p>
+<figure class="code"><figcaption>Script "validate the most recent waiting record"  (pg20_valider_derniere)</figcaption><pre><code>alias: "RustDesk : valider la fiche en attente la plus récente"
+mode: single
+sequence:
+  - variables:
+      pending: "{{ state_attr('sensor.rustdesk_postes_enregistres', 'peers') | default([], true) | selectattr('pending_since', 'defined') | sort(attribute='pending_since', reverse=true) | list }}"
+  - if:
+      - "{{ pending | length == 0 }}"
+    then:
+      - action: notify.mobile_app_&lt;TELEPHONE&gt;
+        data:
+          title: "RustDesk : rien à valider"
+          message: "Aucune fiche d'installation n'attend de validation."
+          data:
+            tag: rustdesk-rien
+            timeout: 8
+      - stop: "Aucune fiche en attente"
+  - variables:
+      rid: "{{ pending[0].id }}"
+      since: "{{ pending[0].pending_since }}"
+      label: "{{ pending[0].pending_label }}"
+  - action: rest_command.pg20_valider
+    data:
+      id: "{{ rid }}"
+      received_at: "{{ since }}"
+    response_variable: res
+    continue_on_error: true
+  - if:
+      - "{{ res is defined and res is not none and res.status | default(0) == 200 }}"
+    then:
+      - action: notify.mobile_app_&lt;TELEPHONE&gt;
+        data:
+          message: clear_notification
+          data:
+            tag: "rustdesk-fiche-{{ rid }}"
+      - action: homeassistant.update_entity
+        target:
+          entity_id: sensor.rustdesk_postes_enregistres
+    else:
+      - action: notify.mobile_app_&lt;TELEPHONE&gt;
+        data:
+          title: "RustDesk : validation non envoyée"
+          message: "La validation de {{ label }} (ID {{ rid }}) n'a pas pu être envoyée (VPN actif ? serveur joignable ?)."
+          data:
+            tag: "rustdesk-erreur-{{ rid }}"</code></pre></figure>
+<figure class="code"><figcaption>Script "validate then go back to the home screen"  (pg20_valider_et_accueil)</figcaption><pre><code>alias: "RustDesk : valider puis revenir à l'écran d'accueil"
+mode: single
+sequence:
+  - action: script.pg20_valider_derniere
+  - action: notify.mobile_app_&lt;TELEPHONE&gt;
+    data:
+      message: command_activity
+      data:
+        intent_action: android.intent.action.MAIN
+        intent_package_name: com.microsoft.launcher   # the package of YOUR Android launcher
+        ttl: 0
+        priority: high</code></pre></figure>
+<figure class="code"><figcaption>Dashboard (url pg20-info, view "fiches")</figcaption><pre><code>views:
+  - title: Fiches
+    path: fiches
+    type: sections
+    max_columns: 1
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Fiche à valider
+          - type: markdown
+            grid_options: { columns: full }
+            content: |
+              {% set p = state_attr('sensor.rustdesk_postes_enregistres', 'peers') | default([], true) | selectattr('pending_since', 'defined') | sort(attribute='pending_since', reverse=true) | list %}
+              {% if p | length == 0 %}
+              ## Aucune fiche en attente
+              {% else %}
+              ## {{ p[0].pending_label }}
+              ID **{{ p[0].id }}**
+
+              # Code de contrôle : {{ p[0].pending_code }}
+
+              Comparez ce code avec l'écran du client. S'il est **identique**, touchez **Valider**.
+              {% endif %}
+          - type: button
+            name: Valider
+            icon: mdi:check-circle
+            show_name: true
+            show_icon: true
+            icon_height: 56px
+            grid_options: { columns: full, rows: 2 }
+            tap_action:
+              action: perform-action
+              perform_action: script.pg20_valider_et_accueil</code></pre></figure>
+
+<h3>The phone</h3>
+<ul>
+  <li><b>Access to Home Assistant away from home</b>: a WireGuard tunnel to your network, as a split tunnel per app (only the Home Assistant app goes through it, the rest of the phone goes out normally), with only your local subnet in the allowed addresses. Enable "Always-on VPN" in Android's VPN settings, otherwise the button will answer "validation not sent" at the client's.</li>
+  <li><b>The buttons of an Android notification appear only once the notification is expanded.</b> This is why tapping the notification opens the validation page, with its big button.</li>
+  <li><b>Return to the home screen</b>: the <code>command_activity</code> command asks Android for the "Appear on top" permission for the Home Assistant app. The launcher's package depends on your phone: adapt it in the script.</li>
+  <li>A new notification with the same <code>tag</code> replaces the previous one without an alert: there is one tag per computer ID.</li>
+</ul>
+</section>
+
+<section id="conditions">
+<h2>Terms and proof of acceptance</h2>
+<p>Installing permanent access at someone's place without them having read it is a bad idea, legally and humanly. The exe can therefore display a text before installing anything, and keep the proof that the client accepted it. The text is yours: the repository provides only a <b>template</b> (<code>conditions\conditions-modele.txt</code>, in French, with a courtesy translation <code>conditions-modele.en.txt</code>), to be completed and reviewed by a professional in your country.</p>
+<ol class="steps">
+  <li><b>You complete the text.</b> Copy the template as <code>conditions\conditions-YYYY-MM-DD.txt</code> and fill in the fields in square brackets (technician, address, e-mail, retention period, erasure delay). The first line, <code>Version : …</code>, identifies the version. <b>Keep every version a client has accepted</b>: it is the one their proof designates.</li>
+  <li><b>The build refuses an incomplete text.</b> As long as a field in square brackets remains, <code>Build-Installer.ps1</code> stops.</li>
+  <li><b>At launch</b>, the exe displays the text: the client ticks "I have read…" and types their name (3 characters at least). Refusing or closing the window: nothing is installed (exit code 20). In silent mode, the <code>/accept</code> option is mandatory (code 21 otherwise) and the proof records "accepted by parameter": this is then a statement by the technician, not by the client.</li>
+  <li><b>The proof</b> travels in the encrypted record: PC time (UTC), typed name, name of the PC and of the Windows user, RustDesk ID, version of the text, SHA-256 fingerprint of the text, mode (window or parameter), seconds spent in the window. The server adds its own reception time, which does not depend on the client's clock. On the USB key, a separate file (<code>rustdesk-consents.csv</code>) plays the same role. The client keeps a copy of the accepted text in <code>C:\ProgramData\Pg20-Info\</code>.</li>
+  <li><b>On your PC</b>, the proof is stored with the client. On validation, the tool writes a file <code>Documents\Pg20-Info-Preuves\Preuve-&lt;ID&gt;-&lt;date&gt;.txt</code> ("Preuve" means proof), with the accepted text found by its fingerprint in the <code>conditions\</code> folder. These files survive the deletion of the client.</li>
+</ol>
+<div class="note warn">
+  <span class="label">What the proof is, and is not</span>
+  <p>It is a log kept by your tool: it shows who accepted which text, when and from which computer. It is not an electronic signature and does not replace a written agreement. The template provided is not legal advice and has not been reviewed by a lawyer.</p>
+</div>
+</section>
+
+<section id="desinstaller">
+<h2>Uninstalling a client</h2>
+<p>Uninstalling RustDesk at a client's means removing the service, the program, the firewall rules and above all the configuration that RustDesk leaves behind: its ID and its keys. Without that, a reinstallation gets the same identity back and the server sees no new registration (see the limits). The <code>Uninstall-RustDeskFully</code> function of <code>Deploy-RustDesk.ps1</code> does all of this, checks at the end that nothing remains and writes a log in <code>C:\ProgramData\Pg20-Info\</code>. It can check the computer's ID before acting (<code>-ExpectedId</code>: it stops without touching anything on another computer) and simulate without erasing anything (<code>-DryRun</code>).</p>
+<p>The "Uninstall…" button of the "Connect" window asks you to type the client's name, then chooses the method by itself.</p>
+
+<h3>Computer with the maintenance task: fully automatic</h3>
+<ol class="steps">
+  <li><b>You click and type the client's name.</b> Your PC signs an order "uninstall computer &lt;ID&gt;" with your private key and drops it on the feed (<code>POST /orders</code>).</li>
+  <li><b>The client's computer reads the orders</b> at start-up then every 30 minutes (scheduled task, system account, no window). It asks the receiver <code>GET /v1/order?id=&lt;its ID&gt;</code>.</li>
+  <li><b>It verifies the order before anything else</b>: signature (with the public key received at installation), action "uninstall", ID identical to its own, not expired, not dated in the future, not older than the installation of the task (anti-replay). Otherwise it does nothing.</li>
+  <li><b>It uninstalls</b> (same function as above, which re-checks the ID), informs the server (<code>POST /v1/order-done</code>), then deletes its own task and folder. If the network is down at that moment, it keeps a marker and retries at each run.</li>
+  <li><b>Your PC sees the acknowledgement</b> at its next synchronisation, removes the client from the list, the USB key and the server, and shows a Windows balloon. The client had nothing to do or see.</li>
+</ol>
+<p>You can cancel as long as the computer has not executed the order (the same button offers it, and so does the page). An order never executed is forgotten after 30 days, and deleting the client or receiving a new record for its ID cancels the pending order. To avoid waiting 30 minutes: on the computer, Task Scheduler, <code>Pg20-Info-Maintenance</code>, Run.</p>
+
+<h3>The signed order</h3>
+<p>The same RSA key pair is used to decrypt the records and to sign the orders. The signed text starts with a prefix that separates these two uses. Dates are in UTC, and the computer reads the server's time (<code>Date</code> header) rather than its own clock, which may be wrong.</p>
+<figure class="code"><figcaption>Order dropped on the server, and the text actually signed</figcaption><pre><code>{"order": {"v": 1, "action": "uninstall", "id": "&lt;ID&gt;", "nonce": "&lt;32 hex characters&gt;",
+           "iat": "2026-10-04T15:31:10Z", "exp": "2026-11-03T15:31:10Z"},
+ "sig": "&lt;RSA-SHA256, base64&gt;"}
+
+pg20-order-v1|&lt;id&gt;|uninstall|&lt;nonce&gt;|&lt;iat&gt;|&lt;exp&gt;</code></pre></figure>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Route</th><th>Where</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td><code>GET /v1/order?id=</code></td><td>receiver, Internet</td><td>Serves the computer's signed order. 404 if there is none, if it is expired or already executed. 60 requests per 10 minutes per address</td></tr>
+    <tr><td><code>POST /v1/order-done</code></td><td>receiver, Internet</td><td>The computer's acknowledgement (256 bytes at most). It never deletes the order: a fake acknowledgement cannot cancel anything</td></tr>
+    <tr><td><code>POST /orders</code>, <code>GET /orders</code>, <code>POST /orders/ack</code></td><td>feed, local network and VPN, token</td><td>Dropping an order (50 at most, one per ID), status (executed or not), deletion</td></tr>
+  </tbody>
+</table>
+</div>
+<p>The server can neither forge nor alter an order: it does not have the private key. It only carries.</p>
+
+<h3>The maintenance task</h3>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Item</th><th>Value</th></tr></thead>
+  <tbody>
+    <tr><td>Scheduled task</td><td><code>Pg20-Info-Maintenance</code>, system account, hidden. Triggers: start-up (after 3 minutes) and every 30 minutes. Catch-up if the computer was off, one instance at a time, 30 minutes at most</td></tr>
+    <tr><td>Folder</td><td><code>C:\Program Files\Pg20-Info\Agent</code>, reserved to the system and administrators (inheritance cut: an ordinary user cannot modify the script). Contains <code>Pg20-Agent.ps1</code> and <code>agent.json</code> (server, certificate fingerprint, public key, installation date: no secret)</td></tr>
+    <tr><td>Command</td><td><code>powershell.exe -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File …</code>. Neither "Bypass" nor a hidden window: these options look too much like malware to some antivirus programs</td></tr>
+    <tr><td>Installation</td><td>Only if the terms have been accepted and the exe knows the server, the fingerprint and your public key. A failure does not stop the installation of RustDesk: the record says that the computer does not have the task</td></tr>
+    <tr><td>Removal</td><td>After an uninstallation by order; if RustDesk is uninstalled another way, at the next run; <code>-Uninstall</code> removes it too</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note warn">
+  <span class="label">It is a permanent component running as the system account</span>
+  <p>It can only uninstall and it is described in the terms, but it is code that you place at third parties'. Read <code>Pg20-Agent.ps1</code> before using it, test it first on a computer of your own, and be aware that an antivirus may flag it.</p>
+</div>
+
+<h3>Computer without the task: guided procedure</h3>
+<p>A computer installed with an older version of the exe does not have the task. The same button then prepares a self-contained command (the uninstall script, compressed in base64, on one line) and puts it in the clipboard; it opens the RustDesk session, and a guide tells you to paste it in an administrator PowerShell at the client's. The session drops about ten seconds after the start, the uninstallation continues on the computer, then "It's done" removes the client from the list. For this computer to get the task, run the recent exe on it again.</p>
+</section>
+
+<section id="suppression">
+<h2>Deleting a client</h2>
+<p>Deleting a client in the tool makes it disappear everywhere, as if it had "never existed". Order of operations: the PC asks the server first, and if the server does not answer, nothing is deleted.</p>
+<ol>
+  <li>The PC calls the feed (<code>POST /peers/forget</code>, with the token).</li>
+  <li>It removes the client from its list (name, computer, password) and its lines from the plugged-in USB key.</li>
+  <li>On the VM, the feed drops the request in a waiting folder. A systemd <code>.path</code> unit immediately starts the forget service, which <b>copies the database</b>, deletes the computer's row, then restarts hbbs once.</li>
+</ol>
+<p>Safeguards of the forget service: ordinary files of 1 KB at most, no symbolic link, numeric ID of 6 to 12 digits, 10 computers at most per run, 20 pending requests at most, every file read is deleted. The PC keeps only a minimal trace (ID and time) so that an old line from another copy of the key does not resurrect the client.</p>
+<div class="note warn">
+  <span class="label">Uninstall at the client's first</span>
+  <p>If RustDesk is still installed there, it registers again by itself and the client comes back as "To validate". Uninstall it before deleting. With the maintenance task, the "Uninstall…" button does both in the right order.</p>
+</div>
+<p>By hand, on the VM: <code>sudo pg20-forget-peer &lt;ID&gt;</code> (database copy, "yes" confirmation, hbbs restart). This script is also used to allow a reinstallation on an already known PC, see the limits.</p>
+</section>
+
+<section id="tests">
+<h2>What is tested</h2>
+<p>The real tests took place on a single test PC running Windows 10 and an Android phone, with a server running under Proxmox behind two routers. In addition, several dozen automated tests ran on isolated copies (receiving service, feed, deletion, PC-side end to end), before any go-live.</p>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Step</th><th>Status</th><th>Detail</th></tr></thead>
+  <tbody>
+    <tr><td>Installation with the offline exe from a USB key</td><td><span class="st ok">Tested</span></td><td>Registration on the server, Windows service running</td></tr>
+    <tr><td>Sending the record, notification, validation on the phone</td><td><span class="st ok">Tested</span></td><td>Complete chain, identical control code on both sides</td></tr>
+    <tr><td>Reception from the Internet</td><td><span class="st ok">Tested</span></td><td>Call to the receiver from the phone on 4G</td></tr>
+    <tr><td>Applying the validation on the PC, Windows balloon</td><td><span class="st ok">Tested</span></td><td>Background task without a window</td></tr>
+    <tr><td>Closing the client's window on validation from the phone</td><td><span class="st ok">Tested</span></td><td>Real test: the window waited, then closed 3 seconds after the tap on Validate. Server side, also verified by automated tests with the real system accounts</td></tr>
+    <tr><td>Same closing when validating from the PC's address book</td><td><span class="st part">Partial</span></td><td>Verified by automated tests, not yet in real life (the test requires being in two places at once: in front of the client's PC and in front of the address book)</td></tr>
+    <tr><td>One-click connection, password prefilled</td><td><span class="st ok">Tested</span></td><td>From the same network as the test computer</td></tr>
+    <tr><td>Complete deletion of a client</td><td><span class="st ok">Tested</span></td><td>On a real test computer, then on a fictitious computer server side</td></tr>
+    <tr><td>Acceptance window for the terms, proof recorded and exported</td><td><span class="st ok">Tested</span></td><td>Real test: the client accepted on screen, the record arrived with its proof, the proof file was written on validation</td></tr>
+    <tr><td>Automatic uninstallation by the maintenance task</td><td><span class="st part">Partial</span></td><td>Nearly 200 automated tests (signature and replay, real scheduled task under a test account and folder permissions verified, service with the real system accounts, PC-side end to end). On a test computer, the exe announced the installation of the task; its real execution through to the uninstallation is not yet confirmed as of writing</td></tr>
+    <tr><td>Maintenance task: start-up trigger, antivirus reaction</td><td><span class="st no">Not tested</span></td><td>The start-up trigger requires administrator rights: it could not be verified in an automated test</td></tr>
+    <tr><td>Guided uninstallation (command in a RustDesk session)</td><td><span class="st no">Not tested</span></td><td>Code verified on fake folders and in simulation, never executed on a real client computer</td></tr>
+    <tr><td>Always-on VPN on the phone</td><td><span class="st ok">Tested</span></td><td>Button working away from the local network</td></tr>
+    <tr><td>Online exe (download from GitHub)</td><td><span class="st no">Not tested</span></td><td>Not yet tried in real life as of writing</td></tr>
+    <tr><td>RustDesk session from a network other than the computer's</td><td><span class="st no">Not tested</span></td><td>The test computer is behind the same router as the server</td></tr>
+    <tr><td>Windows 11, other RustDesk versions</td><td><span class="st no">Not tested</span></td><td>Only version 1.5.0 on Windows 10 was used</td></tr>
+    <tr><td>Other antivirus programs</td><td><span class="st part">Partial</span></td><td>Only one antivirus tried, no alert</td></tr>
+    <tr><td>Client network that blocks port 21120</td><td><span class="st no">Not tested</span></td><td>The USB key fallback is provided, not tried</td></tr>
+    <tr><td>Operation over several weeks, change of public address</td><td><span class="st no">Not tested</span></td><td>The setup is recent</td></tr>
+  </tbody>
+</table>
+</div>
+<h3>Checklist to validate your own setup</h3>
+<ul>
+  <li>After a VM reboot: the containers, the firewall and the services come back by themselves.</li>
+  <li>From outside: the open ports answer, ports 22, 9090 and 8099 stay closed.</li>
+  <li>A client without the server key is refused by hbbs.</li>
+  <li>A record with a wrong code or an unknown computer is refused (answer 409).</li>
+  <li>An exe pointing to a wrong TLS fingerprint sends nothing.</li>
+  <li>The Validate button fails cleanly, with a message, when the phone's VPN is off.</li>
+  <li>The forget service does make a database copy before deleting.</li>
+</ul>
+</section>
+
+<section id="limites">
+<h2>Known limits</h2>
+<ul>
+  <li><b>Reinstalling RustDesk on the same PC.</b> RustDesk keeps its keys, so hbbs sees no new registration and the receiver refuses the record, which stays on the USB key. To send it anyway: <code>sudo pg20-forget-peer &lt;ID&gt;</code> on the VM, let the computer register again (less than a minute), run the exe again. A PC never equipped does not have this problem.</li>
+  <li><b>Home Assistant or the sensor down</b>: a record that arrived during that time is not notified. It appears as "To validate" in the PC tool.</li>
+  <li><b>The technician's PC must be on</b> and reach the server (local network or VPN) to fetch the records. Otherwise they wait, encrypted, 14 days on the server.</li>
+  <li>The sensor reads only the 30 most recent computers.</li>
+  <li><b>Automatic closing of the client's window</b>: only the validation of a record that arrived from the server triggers it, not that of a client imported from the USB key. Validating from the PC does not close the phone's notification. Without validation, the window waits 10 minutes at most.</li>
+  <li>No "online" indicator: hbbs does not publish this information.</li>
+  <li>A single technician and a single key.</li>
+  <li>A regenerated TLS certificate forces you to rebuild the exes.</li>
+  <li><b>Automatic uninstallation is not instantaneous</b>: the computer polls the server every 30 minutes, or at its next start-up if it was off. It works only on computers installed with the maintenance task; the others go through the guided procedure.</li>
+  <li>A compromised server could replay an order that was already signed and then cancelled for a computer (effect: uninstalling RustDesk). Orders are valid for 30 days.</li>
+  <li>The terms text is a template: to be completed and reviewed. The screens of the exe and of the scripts are in French.</li>
+</ul>
+</section>
+
+<section id="maintenance">
+<h2>Maintenance</h2>
+<figure class="code"><figcaption>On the VM</figcaption><pre><code># update RustDesk Server
+cd ~/&lt;SERVER_FOLDER&gt; &amp;&amp; sudo docker compose pull &amp;&amp; sudo docker compose up -d
+
+# logs
+sudo docker compose logs -f hbbs
+journalctl -u pg20-inbox -f
+
+# firewall: edit the file, then (with a scheduled rollback, see above)
+sudo nft -f /etc/nftables.d/pg20.nft</code></pre></figure>
+<ul>
+  <li><b>Backups</b>: the server's private key (<code>data/id_ed25519</code>), the database <code>data/db_v2.sqlite3</code>, the technician's private key, and the feed token.</li>
+  <li><b>Updates</b>: <code>unattended-upgrades</code> for the system. For Docker images, a chosen manual update is better than an unchecked <code>latest</code>.</li>
+  <li><b>Regular review</b>: re-read the firewall, the list of computers on the server, and delete the clients whose agreement you no longer have.</li>
+</ul>
+</section>
+
+<section id="alternatives">
+<h2>Alternatives</h2>
+<p>This project answers a specific need: a lone technician who wants to keep control of their data and pay no subscription. Depending on your situation, another route may be wiser.</p>
+<ul>
+  <li><b>Stop at level 1 or 2.</b> You keep a server of your own and the encryption of the passwords, without exposing home-made code.</li>
+  <li><b>RustDesk Server Pro</b>: the publisher offers a paid version with a management console and address book. Check its current offer and terms before deciding.</li>
+  <li><b>MeshCentral</b> or a commercial monitoring tool: more complete, with online status and fleet management, at the price of a heavier installation or a subscription.</li>
+</ul>
+</section>
+
+<section id="fichiers">
+<h2>Project files</h2>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>File</th><th>Role</th></tr></thead>
+  <tbody>
+    <tr><td><code>docker-compose.yml</code>, <code>install.sh</code></td><td>RustDesk server (hbbs and hbbr)</td></tr>
+    <tr><td><code>pg20-firewall.nft</code></td><td>The VM's firewall</td></tr>
+    <tr><td><code>01-storage.sh</code>, <code>02-vm.sh</code>, <code>user-data.template.yaml</code></td><td>Creating the VM under Proxmox with cloud-init</td></tr>
+    <tr><td><code>Deploy-RustDesk.ps1</code></td><td>Script embedded in the exe: terms, installs, configures, encrypts, sends the record, complete uninstallation, installs the maintenance task</td></tr>
+    <tr><td><code>Pg20-Agent.ps1</code></td><td>Maintenance task installed at the client's: executes a signed uninstall order</td></tr>
+    <tr><td><code>conditions\conditions-modele.txt</code>, <code>conditions-modele.en.txt</code></td><td>Template of the installation terms (French, and a courtesy translation in English)</td></tr>
+    <tr><td><code>Build-Installer.ps1</code>, <code>installer-src\Program.cs</code>, <code>app.manifest</code></td><td>Building the exe (C# launcher)</td></tr>
+    <tr><td><code>Setup-Technician.ps1</code>, <code>Pg20-Common.ps1</code></td><td>Technician key, encryption, DPAPI</td></tr>
+    <tr><td><code>Pg20-Clients.ps1</code>, <code>Pg20-Clients-ui.html</code>, <code>Pg20-Clients.cmd</code></td><td>Client address book, local page, quick window, watcher</td></tr>
+    <tr><td><code>Install-Watch.ps1</code>, <code>Install-Raccourcis.ps1</code></td><td>Watcher task and desktop icons</td></tr>
+    <tr><td><code>peers-export.py</code>, <code>peers-feed.py</code>, <code>inbox-receive.py</code>, <code>peers-forget.py</code></td><td>VM services</td></tr>
+    <tr><td><code>pg20-*.service</code>, <code>*.timer</code>, <code>*.path</code>, <code>install-*.sh</code></td><td>systemd units and install scripts</td></tr>
+    <tr><td><code>home-assistant\*.yaml</code></td><td>Sensor, secrets, automations, REST command</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note info">
+  <span class="label">Script kit</span>
+  <p>This page describes the setup and gives the key configurations. The complete scripts are in the repository <a href="https://github.com/Malvu/pg20-info">github.com/Malvu/pg20-info</a>: the files of the table above, without the author's keys, addresses, names or exes. Its <code>LISEZMOI-KIT.en.md</code> (translation of <code>LISEZMOI-KIT.md</code>) lists the values to replace. MIT licence.</p>
+</div>
+</section>
+
+<footer>
+  <p>This is an English translation of the French page <a href="TUTO-Pg20-Info.html">TUTO-Pg20-Info.html</a>, which is the reference. Translated with the help of an AI assistant, not proofread by a native speaker.</p>
+  <p>This document is provided as is, without warranty, and is neither legal advice nor a security audit. You remain responsible for what you install at your clients' and for what you expose to the Internet.</p>
+  <p>Pg20 Info has no connection with RustDesk or its publishers. RustDesk is a trademark of its owners. The setup was designed and tested by its author with the help of the AI assistant Claude, which was also used to write this page.</p>
+</footer>
+
+</article>
+</div>
+</div>
+
+<script>
+(function () {
+  var figs = document.querySelectorAll('figure.code');
+  Array.prototype.forEach.call(figs, function (fig) {
+    var cap = fig.querySelector('figcaption');
+    var code = fig.querySelector('code');
+    if (!cap || !code) return;
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy';
+    btn.textContent = 'Copy';
+    function flash(txt) {
+      btn.textContent = txt;
+      setTimeout(function () { btn.textContent = 'Copy'; }, 1800);
+    }
+    function selectIt() {
+      try {
+        var r = document.createRange();
+        r.selectNodeContents(code);
+        var s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+        flash('Text selected');
+      } catch (e) { flash('Copy failed'); }
+    }
+    btn.addEventListener('click', function () {
+      try {
+        navigator.clipboard.writeText(code.innerText).then(function () { flash('Copied'); }, selectIt);
+      } catch (e) { selectIt(); }
+    });
+    cap.appendChild(btn);
+  });
+  try {
+    var toc = document.getElementById('toc');
+    if (toc && window.matchMedia('(min-width: 1000px)').matches) toc.open = true;
+  } catch (e) {}
+})();
+</script>

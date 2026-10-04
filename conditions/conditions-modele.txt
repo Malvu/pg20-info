@@ -1,0 +1,34 @@
+Version : 2026-10-04c
+
+CONDITIONS D'INSTALLATION DE L'ACCÈS À DISTANCE
+
+1. Qui installe, et pourquoi
+[NOM OU ENTREPRISE DU TECHNICIEN], [ADRESSE], [E-MAIL] (« le technicien ») installe sur ce poste le logiciel RustDesk, afin de pouvoir vous dépanner et assurer la maintenance informatique convenue avec vous.
+
+2. Ce qui est installé
+- RustDesk, un logiciel de prise de contrôle à distance. Il est installé comme un service Windows : il démarre avec le poste, même si personne n'est connecté.
+- Une configuration qui le relie au serveur du technicien, et non à un serveur public.
+- Un mot de passe permanent, propre à ce poste, défini pendant l'installation.
+- Une tâche de maintenance (nom : « Pg20-Info-Maintenance », dans le planificateur de tâches de Windows). Elle s'exécute sans fenêtre au démarrage du poste, puis toutes les 30 minutes, et demande au serveur du technicien s'il a ordonné la désinstallation de ce poste. Elle ne peut faire que cela : désinstaller RustDesk et effacer sa configuration, et seulement sur un ordre signé par le technicien. Elle ne lit aucun de vos fichiers, n'installe rien d'autre et ne donne aucun accès. Elle se supprime avec RustDesk.
+[À ADAPTER : sans la tâche de maintenance (option -NoAgent de Build-Installer.ps1), supprimez la puce « tâche de maintenance » ci-dessus, la phrase « Il n'envoie l'ordre… » de la rubrique 3 et les passages qui la mentionnent dans les rubriques 4, 5 et 6, ainsi que cette ligne.]
+
+3. Qui peut se connecter, et quand
+Seul le technicien, muni du mot de passe de ce poste, peut s'y connecter. Il ne s'y connecte que lorsque vous êtes présent(e) devant l'écran du poste, pour une intervention convenue avec vous. Il s'engage à ne jamais s'y connecter en votre absence.
+Le logiciel n'empêche pas techniquement une connexion en votre absence : il s'agit d'un engagement du technicien.
+Il n'envoie l'ordre de désinstallation que si vous l'avez demandé ou si notre collaboration est terminée.
+
+4. Données enregistrées
+Pour retrouver ce poste, le technicien conserve : le nom que vous indiquez pendant l'installation, le nom du poste, son identifiant RustDesk, son adresse internet (IP) vue par le serveur, les dates d'installation et de validation, et le mot de passe du poste (chiffré : seul le technicien peut le lire). Le serveur du technicien enregistre aussi les connexions RustDesk et les demandes de la tâche de maintenance (dates et adresses).
+Ces données servent uniquement à vous dépanner. Elles sont conservées [DURÉE DE CONSERVATION], puis effacées.
+
+5. Ce que vous pouvez faire à tout moment
+- Demander la désinstallation complète de RustDesk et l'effacement de votre fiche chez le technicien, en écrivant à [E-MAIL]. Le technicien s'engage à y procéder dans [DÉLAI]. Il envoie alors l'ordre de désinstallation : le poste se désinstalle seul, sans rien à faire de votre part et sans message à l'écran, dans la demi-heure qui suit son démarrage, une fois connecté à internet.
+- Désinstaller RustDesk vous-même (Paramètres, Applications) : la tâche de maintenance se supprime alors d'elle-même dans la demi-heure. Demandez aussi l'effacement de votre fiche.
+- Demander quelles données vous concernant sont conservées, et les faire corriger ou effacer, selon la loi applicable sur la protection des données.
+
+6. Acceptation
+En cochant la case et en saisissant mon nom, j'atteste que :
+- j'ai lu ces conditions ;
+- je suis propriétaire de ce poste, ou autorisé(e) à donner cet accès ;
+- j'accepte l'installation de RustDesk, de sa tâche de maintenance et l'accès du technicien dans les conditions ci-dessus.
+Mon acceptation, sa date, le nom du poste et l'empreinte de ce texte sont enregistrés. Une copie reste sur ce poste.

@@ -1,9 +1,11 @@
 # Kit Pg20 Info (version assainie)
 
-Scripts du montage décrit dans `TUTO-Pg20-Info.html` (à lire en premier, surtout la section « Risques et garde-fous »).
-Kit assaini le 2026-10-03 : les adresses, clés, empreintes, jetons, numéros de série et noms de l'auteur ont été remplacés par des valeurs `<A_REMPLACER>`.
+> English translation: [`LISEZMOI-KIT.en.md`](LISEZMOI-KIT.en.md). Le français fait foi.
 
-**Fourni tel quel, sans garantie.** Vous installez ceci chez vos clients et sur un serveur exposé à Internet : vous en êtes responsable. Licence : non précisée (à choisir par l'auteur avant toute diffusion publique).
+Scripts du montage décrit dans `TUTO-Pg20-Info.html` (à lire en premier, surtout la section « Risques et garde-fous »).
+Kit assaini le 2026-10-03, mis à jour le 2026-10-04 (conditions, preuve d'acceptation, désinstallation, tâche de maintenance) : les adresses, clés, empreintes, jetons, numéros de série et noms de l'auteur ont été remplacés par des valeurs `<A_REMPLACER>`.
+
+**Fourni tel quel, sans garantie.** Vous installez ceci chez vos clients et sur un serveur exposé à Internet : vous en êtes responsable. Licence : MIT (fichier `LICENSE`).
 
 ## Ce que contient le kit
 
@@ -12,7 +14,9 @@ Kit assaini le 2026-10-03 : les adresses, clés, empreintes, jetons, numéros de
 | `serveur-pg20-info\` | 1 | Serveur RustDesk (docker-compose, `install.sh`, notice) |
 | `proxmox-setup\` | 1 | Facultatif, pour Proxmox : stockage (`01-storage.sh`), VM cloud-init (`02-vm.sh`, `user-data.template.yaml`), pare-feu (`pg20-firewall.nft`) |
 | `Deploy-RustDesk.ps1`, `Build-Installer.ps1`, `installer-src\` | 1 | Script d'installation et construction de l'exe |
-| `Setup-Technician.ps1`, `Pg20-Common.ps1`, `Pg20-Clients.*`, `Install-Watch.ps1`, `Install-Raccourcis.ps1` | 2 | Clé du technicien, carnet de clients, surveillance, icônes |
+| `Setup-Technician.ps1`, `Pg20-Common.ps1`, `Pg20-Clients.*`, `Install-Watch.ps1`, `Install-Raccourcis.ps1` | 2 | Clé du technicien, carnet de clients (et signature des ordres de désinstallation), surveillance, icônes |
+| `Pg20-Agent.ps1` | 3 | Tâche de maintenance installée par l'exe chez le client : désinstalle RustDesk sur un ordre signé. Embarquée par `Build-Installer.ps1` ; ne la lancez pas à la main |
+| `conditions\conditions-modele.txt`, `conditions-modele.en.txt` | 1 à 3 | Modèle des conditions d'installation que le client accepte à l'écran (français ; traduction de courtoisie en anglais) |
 | `proxmox-setup\pg20-feed\` | 3 | Services de la VM : exportateur, flux, receveur, oubli, avec leurs unités systemd et scripts d'installation |
 | `home-assistant\` | 3 | Capteur, secrets, automatisations, commande REST |
 
@@ -62,13 +66,17 @@ Ces valeurs sont des choix de l'auteur, pas des secrets. Adaptez-les si les vôt
 .\Build-Installer.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe `
   -Server <ADRESSE_PUBLIQUE> -Key "<CLE_PUBLIQUE_SERVEUR>" `
   -TechnicianPublicKey .\technician.pub.xml -InboxPin <EMPREINTE_TLS> `
+  -TermsFile .\conditions\conditions-AAAA-MM-JJ.txt `
   -Output .\dist\Support-Offline.exe
 ```
+
+`-TermsFile` : le texte des conditions que le client doit accepter avant toute installation. Copiez `conditions\conditions-modele.txt` (ou `.en.txt`) sous un nom daté, remplissez tous les champs entre crochets, **faites-le relire**, et gardez chaque version distribuée : la preuve d'acceptation désigne le texte par son empreinte. La construction refuse un texte qui contient encore un champ entre crochets. Avec `-InboxPin` et `-TechnicianPublicKey`, l'exe embarque aussi la tâche de maintenance (`Pg20-Agent.ps1`) ; la construction exige alors un texte qui la mentionne (« tâche de maintenance » ou « maintenance task »). `-NoAgent` construit un exe sans elle : les postes se désinstallent alors par le parcours guidé.
 
 Sans `-InstallerFile`, l'exe télécharge RustDesk au moment de l'installation. Sans `-TechnicianPublicKey` et `-InboxPin`, vous êtes au niveau 1 (pas de fiche chiffrée).
 
 ## Ce qui a été vérifié sur ce kit, et ce qui ne l'a pas été
 
 - Vérifié : aucune des valeurs réelles de l'auteur ne reste dans les fichiers (recherche automatique) ; tous les scripts PowerShell, shell et Python passent une analyse syntaxique ; seules les lignes de valeurs ont changé par rapport aux fichiers d'origine, plus les contrôles de valeurs `<...>` des scripts d'installation, de `02-vm.sh` et de `01-storage.sh`.
+- Non vérifié : la tâche de maintenance et la désinstallation automatique n'ont été vérifiées que par des tests automatiques ; leur essai réel sur un poste client n'est pas confirmé à la date de cette version.
 - Non vérifié : le kit n'a **pas** été réinstallé de zéro sur une machine vierge, ni les contrôles de valeurs `<...>` exécutés sur un vrai serveur. Les scripts d'origine, eux, tournent chez l'auteur (voir la section « Ce qui est testé » du tuto).
 - Dans `home-assistant\4-fiches-recues.yaml`, la deuxième automatisation est donnée en commentaire (à recréer dans l'interface). Sa version à jour est dans le tuto.

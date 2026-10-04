@@ -86,6 +86,37 @@ function Unprotect-Envelope([string]$Base64) {
     [Text.Encoding]::UTF8.GetString($plain) | ConvertFrom-Json
 }
 
+# ---------------------------------------------------------------- Ordres de désinstallation signés
+# Un ordre dit « désinstalle RustDesk du poste <ID> » ; il est signé (RSA-SHA256) avec la clé privée du technicien, que seul ce PC possède. Les postes
+# équipés de la tâche de maintenance (Pg20-Agent.ps1) ne l'exécutent qu'après avoir vérifié la signature avec la clé publique reçue à l'installation :
+# le serveur qui transporte l'ordre ne peut donc ni en fabriquer un, ni en modifier un. Le préfixe « pg20-order-v1| » du texte signé sépare cet usage
+# de la clé de tout autre. Ce texte doit rester identique, caractère pour caractère, à Get-OrderMessage dans Pg20-Agent.ps1.
+function Get-OrderMessage($Order) {
+    'pg20-order-v1|{0}|{1}|{2}|{3}|{4}' -f $Order.id, $Order.action, $Order.nonce, $Order.iat, $Order.exp
+}
+
+function New-UninstallOrder([string]$Id, [string]$PrivateKeyXml, [int]$ValidDays = 30, $Now = $null) {
+    if ($Id -notmatch '^[0-9]{6,12}$') { throw 'ID de client invalide.' }
+    $inv = [Globalization.CultureInfo]::InvariantCulture
+    $utc = $(if ($Now) { ([datetime]$Now).ToUniversalTime() } else { [datetime]::UtcNow })
+    $nonceBytes = New-Object byte[] 16
+    $rng = [Security.Cryptography.RandomNumberGenerator]::Create(); $rng.GetBytes($nonceBytes); $rng.Dispose()
+    $order = [ordered]@{
+        v = 1; action = 'uninstall'; id = $Id
+        nonce = ([BitConverter]::ToString($nonceBytes) -replace '-', '').ToLower()
+        iat = $utc.ToString('yyyy-MM-ddTHH:mm:ssZ', $inv)
+        exp = $utc.AddDays($ValidDays).ToString('yyyy-MM-ddTHH:mm:ssZ', $inv)
+    }
+    $rsa = New-Object Security.Cryptography.RSACryptoServiceProvider
+    $rsa.PersistKeyInCsp = $false
+    try {
+        $rsa.FromXmlString($PrivateKeyXml)
+        $sig = [Convert]::ToBase64String($rsa.SignData([Text.Encoding]::UTF8.GetBytes((Get-OrderMessage ([pscustomobject]$order))), 'SHA256'))
+    }
+    finally { $rsa.Dispose() }
+    [pscustomobject]@{ order = $order; sig = $sig }
+}
+
 function Get-FeedConfig {
     $p = Join-Path (Get-Pg20Dir) 'feed.json'
     if (Test-Path $p) { Get-Content $p -Raw -Encoding UTF8 | ConvertFrom-Json }

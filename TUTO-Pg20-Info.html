@@ -202,6 +202,7 @@ footer p { max-width: 76ch; }
     <li><b>Testé sur</b> : Windows 10, Debian 12 sous Proxmox, Home Assistant, Android</li>
     <li><b>Mis à jour</b> : 4 octobre 2026</li>
     <li><b>Statut</b> : fonctionne chez l'auteur, sans audit externe</li>
+    <li><b>English</b> : <a href="TUTO-Pg20-Info.en.html">translation of this page</a></li>
   </ul>
 </header>
 
@@ -218,6 +219,8 @@ footer p { max-width: 76ch; }
       <li><a href="#n1-exe"><span class="lvl">N1</span>L'exe d'installation</a></li>
       <li><a href="#n2"><span class="lvl">N2</span>Carnet chiffré</a></li>
       <li><a href="#n3"><span class="lvl">N3</span>Envoi direct et téléphone</a></li>
+      <li><a href="#conditions">Conditions et preuve d'acceptation</a></li>
+      <li><a href="#desinstaller">Désinstaller un client</a></li>
       <li><a href="#suppression">Supprimer un client</a></li>
       <li><a href="#tests">Ce qui est testé</a></li>
       <li><a href="#limites">Limites connues</a></li>
@@ -257,13 +260,14 @@ footer p { max-width: 76ch; }
 <p>Le but : installer RustDesk chez un client, puis vous y connecter plus tard sans retaper un ID ni un mot de passe. Voici une installation, du point de vue du technicien sur place.</p>
 <ol class="steps">
   <li><b>Le client double-clique l'exe</b> (clé USB ou lien). Windows demande les droits administrateur.</li>
-  <li><b>L'exe installe RustDesk</b>, le règle sur votre serveur avec sa clé, et définit un mot de passe permanent de 12 caractères minimum, saisi ou généré.</li>
+  <li><b>Le client lit et accepte les conditions</b> : une fenêtre affiche le texte, il coche la case et tape son nom. Sans acceptation, rien n'est installé. Son acceptation (nom, date, empreinte du texte) est gardée comme preuve.</li>
+  <li><b>L'exe installe RustDesk</b>, le règle sur votre serveur avec sa clé, et définit un mot de passe permanent de 12 caractères minimum, saisi ou généré. Il installe aussi une petite tâche de maintenance, qui ne sait que désinstaller RustDesk sur un ordre signé de votre part.</li>
   <li><b>L'exe envoie une fiche chiffrée</b> (nom, ID, mot de passe) à votre serveur. Le serveur ne peut pas la lire. Il choisit un code à 4 chiffres, que l'exe affiche chez le client.</li>
   <li><b>Votre téléphone sonne</b> : nom, ID et code. Vous comparez avec l'écran du client, puis vous touchez Valider. La fenêtre chez le client affiche alors « Validé » et se ferme toute seule.</li>
   <li><b>Votre PC relève la fiche</b>, la déchiffre avec une clé privée qui ne quitte jamais votre PC, et applique la validation.</li>
   <li><b>Une icône du bureau « Se connecter »</b> liste les clients validés. Un clic ouvre RustDesk avec l'ID et le mot de passe déjà remplis.</li>
 </ol>
-<p>Le même carnet permet de supprimer un client partout d'un seul geste : PC, clé USB et serveur.</p>
+<p>Le même carnet permet de désinstaller RustDesk chez un client d'un clic (le poste se désinstalle tout seul, dans la demi-heure, sans que le client ait rien à faire) et de supprimer un client partout d'un seul geste : PC, clé USB et serveur.</p>
 <div class="note info">
   <span class="label">Ce que ça ne fait pas</span>
   <ul>
@@ -271,6 +275,7 @@ footer p { max-width: 76ch; }
     <li>Clients Windows seulement (l'exe). Un poste macOS ou Linux se règle à la main avec les mêmes options.</li>
     <li>Un seul technicien : la clé privée vit sur un seul PC (plus une sauvegarde).</li>
     <li>Pas de signature de code : Windows et certains antivirus peuvent se méfier de l'exe.</li>
+    <li>Pas de prise de contrôle cachée : la tâche de maintenance installée chez le client ne sait que désinstaller RustDesk, et seulement sur un ordre signé par votre clé. Elle est décrite au client dans les conditions qu'il accepte.</li>
   </ul>
 </div>
 </section>
@@ -283,12 +288,13 @@ footer p { max-width: 76ch; }
     <h4>Chez le client</h4>
     <div class="node">Exe d'installation<small>installe, règle, chiffre la fiche</small></div>
     <div class="node">RustDesk<small>service Windows, mot de passe permanent</small></div>
+    <div class="node">Tâche de maintenance<small>désinstalle sur ordre signé, toutes les 30 min</small></div>
   </div>
   <div class="wire">Internet<br>TCP 21115-21117<br>UDP 21116<br>TCP 21120</div>
   <div class="zone core">
     <h4>Votre serveur (une VM)</h4>
     <div class="node open">hbbs + hbbr (Docker)<small>annuaire et relais RustDesk</small></div>
-    <div class="node open">Receveur de fiches, TLS<small>niveau 3, port 21120</small></div>
+    <div class="node open">Receveur de fiches, TLS<small>niveau 3, port 21120 : fiches, validations, ordres</small></div>
     <div class="node lan">Flux (port 8099, jeton)<small>réseau local et VPN seulement</small></div>
     <div class="node lan">Exportateur, service d'oubli<small>internes, aucun port</small></div>
     <div class="node">Pare-feu nftables<small>tout fermé sauf ce qui est listé</small></div>
@@ -310,11 +316,12 @@ footer p { max-width: 76ch; }
   <tbody>
     <tr><td><code>hbbs</code></td><td>VM, Docker</td><td>Annuaire des postes (ID, mise en relation)</td><td><span class="port">TCP 21115</span> <span class="port">TCP 21116</span> <span class="port">UDP 21116</span></td></tr>
     <tr><td><code>hbbr</code></td><td>VM, Docker</td><td>Relais quand la connexion directe est impossible</td><td><span class="port">TCP 21117</span></td></tr>
-    <tr><td><code>inbox-receive.py</code></td><td>VM, utilisateur dédié</td><td>Reçoit les fiches chiffrées en TLS (niveau 3)</td><td><span class="port">TCP 21120</span></td></tr>
+    <tr><td><code>inbox-receive.py</code></td><td>VM, utilisateur dédié</td><td>Reçoit les fiches chiffrées en TLS, sert les ordres de désinstallation signés et reçoit leurs accusés (niveau 3)</td><td><span class="port">TCP 21120</span></td></tr>
     <tr><td><code>peers-export.py</code></td><td>VM, root, minuteur 15 s</td><td>Lit la base SQLite de hbbs, écrit des fichiers JSON</td><td>aucun</td></tr>
-    <tr><td><code>peers-feed.py</code></td><td>VM, utilisateur sans droits</td><td>Sert la liste des postes et les fiches à votre PC et à Home Assistant, avec un jeton</td><td><span class="port">TCP 8099</span> local</td></tr>
+    <tr><td><code>peers-feed.py</code></td><td>VM, utilisateur sans droits</td><td>Sert la liste des postes et les fiches à votre PC et à Home Assistant, reçoit les ordres signés de votre PC, avec un jeton</td><td><span class="port">TCP 8099</span> local</td></tr>
     <tr><td><code>peers-forget.py</code></td><td>VM, root, déclenché par un fichier</td><td>Supprime un poste de la base de hbbs</td><td>aucun</td></tr>
-    <tr><td><code>Pg20-Clients.ps1</code></td><td>PC du technicien</td><td>Carnet, déchiffrement, connexion, surveillance</td><td>127.0.0.1 seulement</td></tr>
+    <tr><td><code>Pg20-Clients.ps1</code></td><td>PC du technicien</td><td>Carnet, déchiffrement, connexion, surveillance, signature des ordres de désinstallation</td><td>127.0.0.1 seulement</td></tr>
+    <tr><td><code>Pg20-Agent.ps1</code></td><td>Chez le client, compte système</td><td>Tâche de maintenance : lit un ordre de désinstallation signé, le vérifie, désinstalle RustDesk</td><td>sortant <span class="port">TCP 21120</span></td></tr>
   </tbody>
 </table>
 </div>
@@ -322,14 +329,14 @@ footer p { max-width: 76ch; }
 
 <section id="niveaux">
 <h2>Les trois niveaux</h2>
-<p>Montez-les dans l'ordre et faites tourner chaque niveau quelques jours avant de passer au suivant. Le projet représente environ 3 200 lignes écrites pour l'occasion (PowerShell, C#, Python, HTML), réparties ainsi.</p>
+<p>Montez-les dans l'ordre et faites tourner chaque niveau quelques jours avant de passer au suivant. Le projet représente environ 4 700 lignes écrites pour l'occasion (PowerShell, C#, Python, HTML), réparties ainsi.</p>
 <div class="tablewrap">
 <table>
   <thead><tr><th>Niveau</th><th>Ce que vous obtenez</th><th>Ce que vous exposez</th><th>Code maison</th></tr></thead>
   <tbody>
-    <tr><td>1</td><td>Votre serveur RustDesk et un exe qui installe et règle RustDesk chez le client</td><td>Les ports RustDesk</td><td>Environ 860 lignes (PowerShell et C# de l'exe) côté client seulement</td></tr>
-    <tr><td>2</td><td>Mots de passe chiffrés, carnet de clients, connexion en un clic, icônes du bureau</td><td>Rien de plus</td><td>Environ 1 400 lignes sur votre PC</td></tr>
-    <tr><td>3</td><td>Envoi direct de la fiche, notification, validation sur le téléphone, suppression côté serveur</td><td><span class="port">TCP 21120</span></td><td>Environ 970 lignes de Python sur le serveur, plus la configuration de Home Assistant</td></tr>
+    <tr><td>1</td><td>Votre serveur RustDesk et un exe qui installe et règle RustDesk chez le client</td><td>Les ports RustDesk</td><td>Environ 1 400 lignes (PowerShell et C# de l'exe, dont les conditions et la désinstallation complète) côté client seulement</td></tr>
+    <tr><td>2</td><td>Mots de passe chiffrés, carnet de clients, connexion en un clic, icônes du bureau</td><td>Rien de plus</td><td>Environ 1 800 lignes sur votre PC</td></tr>
+    <tr><td>3</td><td>Envoi direct de la fiche, notification, validation sur le téléphone, suppression côté serveur, désinstallation automatique à distance</td><td><span class="port">TCP 21120</span></td><td>Environ 1 200 lignes de Python sur le serveur, 250 lignes de PowerShell pour la tâche de maintenance, plus la configuration de Home Assistant</td></tr>
   </tbody>
 </table>
 </div>
@@ -352,13 +359,14 @@ footer p { max-width: 76ch; }
   <tbody>
     <tr><td>Le serveur est un point central</td><td>VM dédiée, pare-feu fermé par défaut, administration réservée au réseau local et au VPN, mises à jour de sécurité automatiques, sortie interdite vers votre réseau local</td><td>Dans le modèle de RustDesk, le serveur participe à l'échange de clés. Un serveur compromis pourrait se placer entre vous et vos clients</td></tr>
     <tr><td>Un service maison est joignable depuis Internet (niveau 3)</td><td>Utilisateur dédié, sandbox systemd, formats stricts, limites de débit, acceptation seulement d'un poste qui vient de s'enregistrer, rien d'appliqué avant votre clic</td><td>Aucun audit indépendant. Le code a été écrit avec l'aide d'un assistant IA puis testé, ce qui ne remplace pas une relecture de sécurité par un tiers</td></tr>
+    <tr><td>Une tâche de maintenance tourne en compte système chez chaque client (niveau 3)</td><td>Dossier réservé au système et aux administrateurs. Un seul ordre possible, « désinstaller » : le code est dans le script, jamais reçu du serveur. L'ordre est signé par la clé privée de votre PC et vérifié (signature, ID du poste, dates, anti-rejeu). Elle est décrite au client dans les conditions qu'il accepte, et l'exe refuse de l'installer sans elles</td><td>Qui volerait votre clé privée pourrait désinstaller vos clients (et lire les fiches). Un serveur compromis pourrait rejouer un ordre déjà signé puis annulé : l'effet reste de désinstaller RustDesk. Certains antivirus se méfient d'une tâche cachée en compte système. Aucun audit indépendant</td></tr>
     <tr><td>Un mot de passe permanent par client donne un accès durable</td><td>Mot de passe chiffré dès l'exe avec votre clé publique, jamais lisible sur le serveur. Clé privée protégée par votre compte Windows (DPAPI)</td><td>Sur votre PC, le mot de passe passe brièvement dans le lien <code>rustdesk://…?password=</code> et dans le presse-papiers (effacé après 30 s)</td></tr>
     <tr><td>Une fausse fiche envoyée par un tiers</td><td>Poste obligatoirement inscrit sur votre serveur avec la même adresse publique, depuis moins de 30 min. Code de contrôle à 4 chiffres comparé à l'écran du client. Validation manuelle</td><td>Si vous validez sans comparer le code, la protection tombe</td></tr>
     <tr><td>L'exe n'est pas signé</td><td>Journal de démarrage dans <code>%TEMP%</code> pour comprendre un blocage. L'exe vérifie la signature de l'installeur RustDesk avant de l'installer</td><td>SmartScreen affiche un avertissement (« Exécuter quand même »). Un antivirus peut bloquer sans bruit. Une signature demande un certificat payant</td></tr>
     <tr><td>L'adresse du serveur est figée dans chaque exe</td><td>Utiliser un nom DDNS plutôt qu'une IP brute</td><td>Si l'adresse change et que le nom ne suit pas, tous les clients sont à reconfigurer</td></tr>
     <tr><td>Perte d'une clé</td><td>Sauvegarde de <code>id_ed25519</code> (serveur) et de la clé privée du technicien dans un gestionnaire de mots de passe</td><td>Sans la clé du serveur, tous les clients sont à reconfigurer. Sans la clé du technicien, les fiches reçues sont illisibles</td></tr>
     <tr><td>Panne du serveur, de la box ou de Home Assistant</td><td>Repli : la fiche reste chiffrée sur la clé USB si l'envoi échoue</td><td>Pas de notification tant que la chaîne n'est pas rétablie</td></tr>
-    <tr><td>Obligations légales et confiance du client</td><td>Accord écrit, information sur les données conservées, procédure de désinstallation</td><td>Vérifiez ce que la loi de votre pays exige (en Suisse la nLPD, dans l'UE le RGPD). Ce tuto n'est pas un avis juridique</td></tr>
+    <tr><td>Obligations légales et confiance du client</td><td>Conditions acceptées à l'écran par le client, avec preuve enregistrée ; information sur les données conservées ; procédure de désinstallation</td><td>Vérifiez ce que la loi de votre pays exige (en Suisse la nLPD, dans l'UE le RGPD). Le modèle de conditions fourni n'a pas été relu par un juriste, et la preuve est un journal tenu par l'outil, pas une signature électronique. Ce tuto n'est pas un avis juridique</td></tr>
   </tbody>
 </table>
 </div>
@@ -368,6 +376,7 @@ footer p { max-width: 76ch; }
   <li><b>Aucun secret en clair sur le serveur.</b> Le serveur voit l'ID, le nom (pour la notification), l'adresse et l'heure. Jamais le mot de passe.</li>
   <li><b>Trois points d'ancrage figés dans l'exe</b> : la clé du serveur RustDesk, votre clé publique de technicien, et l'empreinte du certificat TLS du receveur. Pas d'autorité de certification, pas de proxy.</li>
   <li><b>Un humain valide.</b> Une fiche arrivée ne remplace rien tant que vous n'avez pas validé, même pour un client déjà connu.</li>
+  <li><b>Un seul ordre possible chez le client : désinstaller.</b> Il est signé avec la clé privée de votre PC ; le serveur le transporte sans pouvoir en fabriquer ni en modifier un.</li>
   <li><b>Moindres privilèges.</b> Chaque service a son utilisateur et ne voit que ce dont il a besoin. Seuls deux petits services tournent en root, sans port ouvert.</li>
   <li><b>Tout changement risqué est réversible</b> : copie de la base avant toute suppression, retour arrière automatique pour le pare-feu, tests sur une instance isolée avant la production.</li>
 </ul>
@@ -508,8 +517,10 @@ Restart-Service RustDesk
   <li>Il refuse d'installer un installeur RustDesk dont la signature Authenticode n'est pas valide.</li>
   <li>Le mot de passe doit faire au moins 12 caractères, sans espace.</li>
   <li>Il écrit un journal de démarrage dans <code>%TEMP%\…Setup.log</code> (options, droits, code de sortie, jamais les valeurs secrètes). Pas de journal après un double-clic veut dire que l'exe n'a pas démarré : SmartScreen ou antivirus.</li>
-  <li>Options : <code>/silent</code> (aucune question, pour un déploiement par script), <code>/save</code>, <code>-Uninstall</code>.</li>
+  <li>Avant toute installation, il peut afficher des conditions d'installation que le client doit accepter (voir « Conditions et preuve d'acceptation »). Sans acceptation, rien n'est installé.</li>
+  <li>Options : <code>/silent</code> (aucune question, pour un déploiement par script ; exige <code>/accept</code> si un texte est intégré), <code>/accept</code>, <code>/save</code>, <code>-Uninstall</code> (désinstallation complète, voir « Désinstaller un client »).</li>
   <li>Au niveau 3, après l'envoi de la fiche, il attend la validation du technicien puis se ferme tout seul (voir « Fermer la fenêtre du client à la validation »).</li>
+  <li>Au niveau 3, avec des conditions acceptées, il installe aussi la tâche de maintenance (voir « Désinstaller un client »). <code>-NoAgent</code> à la construction s'en passe.</li>
 </ul>
 <h3>Hors ligne ou en ligne</h3>
 <div class="tablewrap">
@@ -560,7 +571,7 @@ Restart-Service RustDesk
 <ul>
   <li><b>Une page web locale</b> servie sur <code>127.0.0.1</code> seulement, avec un jeton aléatoire par session, un contrôle de l'en-tête Host et une politique CSP. La page ne reçoit jamais les mots de passe. Elle s'arrête seule après 45 min d'inactivité.</li>
   <li><b>Connexion en un clic</b> : le lien <code>rustdesk://connection/new/&lt;ID&gt;?password=…</code> ouvre RustDesk avec l'ID et le mot de passe déjà remplis.</li>
-  <li><b>Une petite fenêtre « Se connecter »</b> (WinForms), avec recherche au clavier, ne montre que les clients validés.</li>
+  <li><b>Une petite fenêtre « Se connecter »</b> (WinForms), avec recherche au clavier, ne montre que les clients validés. Elle porte aussi les boutons « Désinstaller… » et « Supprimer… ».</li>
   <li><b>Deux icônes du bureau</b> (la fenêtre rapide et la page complète), lancées sans console.</li>
   <li><b>Une tâche planifiée de surveillance</b> avec vos droits, sans fenêtre (<code>conhost --headless</code>), une seule instance. Elle lit la clé USB, relève les fiches du serveur, applique les validations du téléphone, et affiche une bulle Windows pour chaque nouvelle fiche. Son journal ne contient jamais de mot de passe.</li>
   <li><b>Un verrou commun</b> (mutex) protège le carnet : la page et la surveillance peuvent travailler en même temps sans s'écraser.</li>
@@ -579,8 +590,8 @@ Restart-Service RustDesk
   <thead><tr><th>Service</th><th>Utilisateur</th><th>Ce qu'il fait</th></tr></thead>
   <tbody>
     <tr><td>Exportateur</td><td>root, minuteur 15 s</td><td>Écrit <code>peers.json</code> et <code>registrations.json</code> en lecture seule pour les autres</td></tr>
-    <tr><td>Receveur</td><td><code>pg20-inbox</code>, sandbox systemd</td><td>Écoute en TLS sur 21120, valide, choisit le code, dépose la fiche chiffrée dans un dossier d'attente, garde ouvertes les demandes d'attente de validation</td></tr>
-    <tr><td>Flux</td><td>sans droits, jeton Bearer</td><td>Sert la liste des postes, les fiches et les validations au réseau local et au VPN, dépose le repère de validation pour l'exe en attente</td></tr>
+    <tr><td>Receveur</td><td><code>pg20-inbox</code>, sandbox systemd</td><td>Écoute en TLS sur 21120, valide, choisit le code, dépose la fiche chiffrée dans un dossier d'attente, garde ouvertes les demandes d'attente de validation, sert les ordres de désinstallation et reçoit leurs accusés</td></tr>
+    <tr><td>Flux</td><td>sans droits, jeton Bearer</td><td>Sert la liste des postes, les fiches et les validations au réseau local et au VPN, dépose le repère de validation pour l'exe en attente, reçoit les ordres signés</td></tr>
     <tr><td>Oubli</td><td>root, déclenché par un fichier</td><td>Supprime un poste de la base (voir plus bas)</td></tr>
   </tbody>
 </table>
@@ -653,7 +664,9 @@ ip saddr { &lt;RESEAU_LOCAL&gt;, &lt;RESEAU_WIREGUARD&gt; } tcp dport { 22, 9090
 <figure class="code"><figcaption>Reconstruction de l'exe</figcaption><pre><code>.\Build-Installer.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe `
   -Server &lt;ADRESSE_PUBLIQUE&gt; -Key "&lt;CLE_PUBLIQUE_SERVEUR&gt;" `
   -TechnicianPublicKey .\technician.pub.xml -InboxPin &lt;EMPREINTE_TLS&gt; `
+  -TermsFile .\conditions\conditions-AAAA-MM-JJ.txt `
   -Output .\dist\Support-Offline.exe</code></pre></figure>
+<p><code>-TermsFile</code> est facultatif en général, mais <b>obligatoire pour embarquer la tâche de maintenance</b> : la construction refuse sinon, car on n'installe pas chez un client un composant qu'il n'a pas pu lire. Voir les deux sections suivantes.</p>
 <div class="note warn">
   <span class="label">Si le certificat change</span>
   <p>Une VM reconstruite régénère le certificat, donc l'empreinte. Tous les exes déjà distribués ne pourront plus envoyer de fiche tant que vous ne les aurez pas reconstruits.</p>
@@ -853,6 +866,78 @@ sequence:
 </ul>
 </section>
 
+<section id="conditions">
+<h2>Conditions d'installation et preuve d'acceptation</h2>
+<p>Installer un accès permanent chez quelqu'un sans qu'il l'ait lu est une mauvaise idée, juridiquement et humainement. L'exe peut donc afficher un texte avant d'installer quoi que ce soit, et garder la preuve que le client l'a accepté. Le texte est le vôtre : le dépôt n'en fournit qu'un <b>modèle</b> (<code>conditions\conditions-modele.txt</code>, avec une traduction de courtoisie <code>conditions-modele.en.txt</code>), à compléter et à faire relire par un professionnel de votre pays.</p>
+<ol class="steps">
+  <li><b>Vous complétez le texte.</b> Copiez le modèle en <code>conditions\conditions-AAAA-MM-JJ.txt</code> et remplissez les champs entre crochets (technicien, adresse, e-mail, durée de conservation, délai d'effacement). La première ligne, <code>Version : …</code>, identifie la version. <b>Gardez chaque version acceptée</b> par un client : c'est celle que sa preuve désigne.</li>
+  <li><b>La construction refuse un texte incomplet.</b> Tant qu'un champ entre crochets reste, <code>Build-Installer.ps1</code> s'arrête.</li>
+  <li><b>Au lancement</b>, l'exe affiche le texte : le client coche « J'ai lu… » et tape son nom (3 caractères au moins). Refuser ou fermer la fenêtre : rien n'est installé (code de sortie 20). En mode silencieux, l'option <code>/accept</code> est obligatoire (code 21 sinon) et la preuve note « accepté par paramètre » : c'est alors une déclaration du technicien, pas du client.</li>
+  <li><b>La preuve</b> voyage dans la fiche chiffrée : heure du PC (UTC), nom saisi, nom du PC et de l'utilisateur Windows, ID RustDesk, version du texte, empreinte SHA-256 du texte, mode (fenêtre ou paramètre), secondes passées dans la fenêtre. Le serveur y ajoute sa propre heure de réception, qui ne dépend pas de l'horloge du client. Sur la clé USB, un fichier à part (<code>rustdesk-consents.csv</code>) joue le même rôle. Le client garde une copie du texte accepté dans <code>C:\ProgramData\Pg20-Info\</code>.</li>
+  <li><b>Sur votre PC</b>, la preuve est rangée avec le client. À la validation, l'outil écrit un fichier <code>Documents\Pg20-Info-Preuves\Preuve-&lt;ID&gt;-&lt;date&gt;.txt</code>, avec le texte accepté retrouvé par son empreinte dans le dossier <code>conditions\</code>. Ces fichiers survivent à la suppression du client.</li>
+</ol>
+<div class="note warn">
+  <span class="label">Ce que la preuve est, et n'est pas</span>
+  <p>C'est un journal tenu par votre outil : il montre qui a accepté quel texte, quand et depuis quel poste. Ce n'est pas une signature électronique et il ne remplace pas un accord écrit. Le modèle fourni n'est pas un avis juridique et n'a pas été relu par un juriste.</p>
+</div>
+</section>
+
+<section id="desinstaller">
+<h2>Désinstaller un client</h2>
+<p>Désinstaller RustDesk chez un client, c'est retirer le service, le programme, les règles de pare-feu et surtout la configuration que RustDesk laisse derrière lui : son ID et ses clés. Sans cela, une réinstallation retrouve la même identité et le serveur ne voit aucune nouvelle inscription (voir les limites). La fonction <code>Uninstall-RustDeskFully</code> de <code>Deploy-RustDesk.ps1</code> fait tout cela, vérifie à la fin qu'il ne reste rien et écrit un journal dans <code>C:\ProgramData\Pg20-Info\</code>. Elle peut vérifier l'ID du poste avant d'agir (<code>-ExpectedId</code> : elle s'arrête sans rien toucher sur un autre poste) et simuler sans rien effacer (<code>-DryRun</code>).</p>
+<p>Le bouton « Désinstaller… » de la fenêtre « Se connecter » demande de taper le nom du client, puis choisit seul la méthode.</p>
+
+<h3>Poste avec la tâche de maintenance : tout est automatique</h3>
+<ol class="steps">
+  <li><b>Vous cliquez et tapez le nom du client.</b> Votre PC signe un ordre « désinstaller le poste &lt;ID&gt; » avec votre clé privée et le dépose sur le flux (<code>POST /orders</code>).</li>
+  <li><b>Le poste du client lit les ordres</b> au démarrage puis toutes les 30 minutes (tâche planifiée, compte système, sans fenêtre). Il demande au receveur <code>GET /v1/order?id=&lt;son ID&gt;</code>.</li>
+  <li><b>Il vérifie l'ordre avant tout</b> : signature (avec la clé publique reçue à l'installation), action « uninstall », ID identique au sien, pas périmé, pas daté du futur, pas antérieur à l'installation de la tâche (anti-rejeu). Sinon il ne fait rien.</li>
+  <li><b>Il désinstalle</b> (même fonction que ci-dessus, qui revérifie l'ID), prévient le serveur (<code>POST /v1/order-done</code>), puis supprime sa propre tâche et son dossier. Si le réseau est coupé à ce moment, il garde un repère et retente à chaque passage.</li>
+  <li><b>Votre PC voit l'accusé</b> à sa prochaine synchronisation, retire le client de la liste, de la clé USB et du serveur, et affiche une bulle Windows. Le client n'a rien eu à faire ni à voir.</li>
+</ol>
+<p>Vous pouvez annuler tant que le poste n'a pas exécuté l'ordre (le même bouton le propose, la page aussi). Un ordre jamais exécuté est oublié au bout de 30 jours, et supprimer le client ou recevoir une nouvelle fiche pour son ID annule l'ordre en attente. Pour ne pas attendre 30 minutes : sur le poste, Planificateur de tâches, <code>Pg20-Info-Maintenance</code>, Exécuter.</p>
+
+<h3>L'ordre signé</h3>
+<p>La même paire de clés RSA sert à déchiffrer les fiches et à signer les ordres. Le texte signé commence par un préfixe qui sépare ces deux usages. Les dates sont en UTC, et le poste lit l'heure du serveur (en-tête <code>Date</code>) plutôt que sa propre horloge, qui peut être fausse.</p>
+<figure class="code"><figcaption>Ordre déposé sur le serveur, et texte réellement signé</figcaption><pre><code>{"order": {"v": 1, "action": "uninstall", "id": "&lt;ID&gt;", "nonce": "&lt;32 hexadécimaux&gt;",
+           "iat": "2026-10-04T15:31:10Z", "exp": "2026-11-03T15:31:10Z"},
+ "sig": "&lt;RSA-SHA256, base64&gt;"}
+
+pg20-order-v1|&lt;id&gt;|uninstall|&lt;nonce&gt;|&lt;iat&gt;|&lt;exp&gt;</code></pre></figure>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Route</th><th>Où</th><th>Rôle</th></tr></thead>
+  <tbody>
+    <tr><td><code>GET /v1/order?id=</code></td><td>receveur, Internet</td><td>Sert l'ordre signé du poste. 404 s'il n'y en a pas, s'il est périmé ou déjà exécuté. 60 requêtes par 10 minutes et par adresse</td></tr>
+    <tr><td><code>POST /v1/order-done</code></td><td>receveur, Internet</td><td>Accusé du poste (256 octets au plus). Il n'efface jamais l'ordre : un faux accusé ne peut rien annuler</td></tr>
+    <tr><td><code>POST /orders</code>, <code>GET /orders</code>, <code>POST /orders/ack</code></td><td>flux, réseau local et VPN, jeton</td><td>Dépôt d'un ordre (50 au plus, un seul par ID), état (exécuté ou non), effacement</td></tr>
+  </tbody>
+</table>
+</div>
+<p>Le serveur ne peut ni fabriquer ni modifier un ordre : il n'a pas la clé privée. Il transporte seulement.</p>
+
+<h3>La tâche de maintenance</h3>
+<div class="tablewrap">
+<table>
+  <thead><tr><th>Élément</th><th>Valeur</th></tr></thead>
+  <tbody>
+    <tr><td>Tâche planifiée</td><td><code>Pg20-Info-Maintenance</code>, compte système, cachée. Déclencheurs : démarrage (après 3 minutes) et toutes les 30 minutes. Rattrapage si le poste était éteint, une instance à la fois, 30 minutes au plus</td></tr>
+    <tr><td>Dossier</td><td><code>C:\Program Files\Pg20-Info\Agent</code>, réservé au système et aux administrateurs (héritage coupé : un utilisateur ordinaire ne peut pas modifier le script). Contient <code>Pg20-Agent.ps1</code> et <code>agent.json</code> (serveur, empreinte du certificat, clé publique, date d'installation : aucun secret)</td></tr>
+    <tr><td>Commande</td><td><code>powershell.exe -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File …</code>. Ni « Bypass » ni fenêtre cachée : ces options ressemblent trop à un logiciel malveillant pour certains antivirus</td></tr>
+    <tr><td>Installation</td><td>Seulement si les conditions ont été acceptées et si l'exe connaît le serveur, l'empreinte et votre clé publique. Un échec n'arrête pas l'installation de RustDesk : la fiche indique que le poste n'a pas la tâche</td></tr>
+    <tr><td>Disparition</td><td>Après une désinstallation par ordre ; si RustDesk est désinstallé autrement, au passage suivant ; <code>-Uninstall</code> la retire aussi</td></tr>
+  </tbody>
+</table>
+</div>
+<div class="note warn">
+  <span class="label">C'est un composant permanent en compte système</span>
+  <p>Elle ne sait que désinstaller et elle est décrite dans les conditions, mais c'est du code que vous placez chez des tiers. Relisez <code>Pg20-Agent.ps1</code> avant de l'utiliser, testez-la d'abord sur un poste à vous, et sachez qu'un antivirus peut la signaler.</p>
+</div>
+
+<h3>Poste sans la tâche : parcours guidé</h3>
+<p>Un poste installé avec une ancienne version de l'exe n'a pas la tâche. Le même bouton prépare alors une commande autonome (le script de désinstallation, compressé en base64, sur une ligne) et la place dans le presse-papiers ; il ouvre la session RustDesk, et un guide indique de la coller dans un PowerShell administrateur du client. La session se coupe une dizaine de secondes après le début, la désinstallation continue sur le poste, puis « C'est terminé » retire le client de la liste. Pour que ce poste ait la tâche, relancez l'exe récent dessus.</p>
+</section>
+
 <section id="suppression">
 <h2>Supprimer un client</h2>
 <p>Supprimer un client dans l'outil le fait disparaître partout, pour qu'il n'ait « jamais existé ». Ordre des opérations : le PC demande d'abord au serveur, et si le serveur ne répond pas, rien n'est supprimé.</p>
@@ -864,7 +949,7 @@ sequence:
 <p>Garde-fous du service d'oubli : fichiers ordinaires de 1 Ko au plus, sans lien symbolique, ID numérique de 6 à 12 chiffres, 10 postes au plus par passage, 20 demandes en attente au plus, tout fichier lu est effacé. Le PC ne garde qu'une trace minimale (ID et heure) pour qu'une ancienne ligne d'une autre copie de la clé ne ressuscite pas le client.</p>
 <div class="note warn">
   <span class="label">Désinstallez d'abord chez le client</span>
-  <p>Si RustDesk est encore installé là-bas, il se réenregistre tout seul et le client revient « À valider ». Désinstallez-le avant de supprimer, ou après, mais dans cet ordre-là si vous voulez que la disparition soit définitive.</p>
+  <p>Si RustDesk est encore installé là-bas, il se réenregistre tout seul et le client revient « À valider ». Désinstallez-le avant de supprimer. Avec la tâche de maintenance, le bouton « Désinstaller… » fait les deux dans le bon ordre.</p>
 </div>
 <p>En manuel, sur la VM : <code>sudo pg20-forget-peer &lt;ID&gt;</code> (copie de la base, confirmation « oui », redémarrage de hbbs). Ce script sert aussi à autoriser une réinstallation sur un PC déjà connu, voir les limites.</p>
 </section>
@@ -884,6 +969,10 @@ sequence:
     <tr><td>Même fermeture quand on valide depuis le carnet du PC</td><td><span class="st part">Partiel</span></td><td>Vérifié par des tests automatiques, pas encore en réel (l'essai demande d'être à deux endroits à la fois : devant le PC du client et devant le carnet)</td></tr>
     <tr><td>Connexion en un clic, mot de passe prérempli</td><td><span class="st ok">Testé</span></td><td>Depuis le même réseau que le poste de test</td></tr>
     <tr><td>Suppression complète d'un client</td><td><span class="st ok">Testé</span></td><td>Sur un vrai poste de test, puis sur un poste fictif côté serveur</td></tr>
+    <tr><td>Fenêtre d'acceptation des conditions, preuve enregistrée et exportée</td><td><span class="st ok">Testé</span></td><td>Essai réel : le client a accepté à l'écran, la fiche est arrivée avec sa preuve, le fichier de preuve a été écrit à la validation</td></tr>
+    <tr><td>Désinstallation automatique par la tâche de maintenance</td><td><span class="st part">Partiel</span></td><td>Près de 200 tests automatiques (signature et rejeu, tâche planifiée réelle sous un compte de test et droits du dossier vérifiés, service avec les vrais comptes système, bout en bout côté PC). Sur un poste de test, l'exe a annoncé l'installation de la tâche ; son exécution réelle jusqu'à la désinstallation n'est pas encore confirmée à la date d'écriture</td></tr>
+    <tr><td>Tâche de maintenance : déclencheur au démarrage, réaction d'un antivirus</td><td><span class="st no">Non testé</span></td><td>Le déclencheur au démarrage exige les droits administrateur : il n'a pas pu être vérifié en test automatique</td></tr>
+    <tr><td>Désinstallation guidée (commande dans une session RustDesk)</td><td><span class="st no">Non testé</span></td><td>Code vérifié sur de faux dossiers et en simulation, jamais exécuté sur un vrai poste client</td></tr>
     <tr><td>VPN permanent du téléphone</td><td><span class="st ok">Testé</span></td><td>Bouton fonctionnel hors du réseau local</td></tr>
     <tr><td>Exe en ligne (téléchargement depuis GitHub)</td><td><span class="st no">Non testé</span></td><td>Pas encore essayé en réel au moment de l'écriture</td></tr>
     <tr><td>Session RustDesk depuis un autre réseau que celui du poste</td><td><span class="st no">Non testé</span></td><td>Le poste de test est derrière la même box que le serveur</td></tr>
@@ -917,6 +1006,9 @@ sequence:
   <li>Pas d'indicateur « en ligne » : hbbs ne publie pas cette information.</li>
   <li>Un seul technicien et une seule clé.</li>
   <li>Un certificat TLS régénéré oblige à reconstruire les exes.</li>
+  <li><b>La désinstallation automatique n'est pas instantanée</b> : le poste interroge le serveur toutes les 30 minutes, ou à son prochain démarrage s'il était éteint. Elle ne fonctionne que sur les postes installés avec la tâche de maintenance ; les autres passent par le parcours guidé.</li>
+  <li>Un serveur compromis pourrait rejouer un ordre déjà signé puis annulé pour un poste (effet : désinstaller RustDesk). Les ordres sont valables 30 jours.</li>
+  <li>Le texte des conditions est un modèle : à compléter et à faire relire. Les écrans de l'exe et des scripts sont en français.</li>
 </ul>
 </section>
 
@@ -957,7 +1049,9 @@ sudo nft -f /etc/nftables.d/pg20.nft</code></pre></figure>
     <tr><td><code>docker-compose.yml</code>, <code>install.sh</code></td><td>Serveur RustDesk (hbbs et hbbr)</td></tr>
     <tr><td><code>pg20-firewall.nft</code></td><td>Pare-feu de la VM</td></tr>
     <tr><td><code>01-storage.sh</code>, <code>02-vm.sh</code>, <code>user-data.template.yaml</code></td><td>Création de la VM sous Proxmox avec cloud-init</td></tr>
-    <tr><td><code>Deploy-RustDesk.ps1</code></td><td>Script embarqué dans l'exe : installe, règle, chiffre, envoie la fiche</td></tr>
+    <tr><td><code>Deploy-RustDesk.ps1</code></td><td>Script embarqué dans l'exe : conditions, installe, règle, chiffre, envoie la fiche, désinstallation complète, installe la tâche de maintenance</td></tr>
+    <tr><td><code>Pg20-Agent.ps1</code></td><td>Tâche de maintenance installée chez le client : exécute un ordre de désinstallation signé</td></tr>
+    <tr><td><code>conditions\conditions-modele.txt</code>, <code>conditions-modele.en.txt</code></td><td>Modèle des conditions d'installation (français, et traduction de courtoisie en anglais)</td></tr>
     <tr><td><code>Build-Installer.ps1</code>, <code>installer-src\Program.cs</code>, <code>app.manifest</code></td><td>Construction de l'exe (lanceur C#)</td></tr>
     <tr><td><code>Setup-Technician.ps1</code>, <code>Pg20-Common.ps1</code></td><td>Clé du technicien, chiffrement, DPAPI</td></tr>
     <tr><td><code>Pg20-Clients.ps1</code>, <code>Pg20-Clients-ui.html</code>, <code>Pg20-Clients.cmd</code></td><td>Carnet de clients, page locale, fenêtre rapide, surveillance</td></tr>
@@ -975,6 +1069,7 @@ sudo nft -f /etc/nftables.d/pg20.nft</code></pre></figure>
 </section>
 
 <footer>
+  <p>English translation of this page: <a href="TUTO-Pg20-Info.en.html">TUTO-Pg20-Info.en.html</a>. Le français fait foi.</p>
   <p>Ce document est fourni tel quel, sans garantie, et n'est ni un avis juridique ni un audit de sécurité. Vous restez responsable de ce que vous installez chez vos clients et de ce que vous exposez sur Internet.</p>
   <p>Pg20 Info n'a aucun lien avec RustDesk ni ses éditeurs. RustDesk est une marque de ses propriétaires. Le montage a été conçu et testé par son auteur avec l'aide de l'assistant IA Claude, qui a aussi servi à rédiger cette page.</p>
 </footer>

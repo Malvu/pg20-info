@@ -16,6 +16,10 @@ POST /records/ack          -> {"items":[{"id":"...","received_at":"..."}], "vali
                               received_at correspond : une fiche plus récente est conservée
 POST /peers/forget         -> {"id":"..."} : le technicien supprime ce client ; la demande est déposée dans /var/lib/pg20-forget, où un
                               service root (peers-forget.py) retire le poste de la base de hbbs, après en avoir fait une copie
+GET  /orders               -> ordres de désinstallation déposés et leur état (done = le poste a signalé l'exécution)
+POST /orders               -> {"order": {...}, "sig": "..."} : dépose un ordre de désinstallation SIGNÉ par le technicien (un poste équipé de la tâche de
+                              maintenance l'interroge toutes les 30 min auprès du receveur et en vérifie la signature)
+POST /orders/ack           -> {"id":"...","nonce":"..."} : efface l'ordre (traité ou annulé) et son accusé
 Tout le reste est refusé. Ce service n'a accès ni à la base de hbbs ni à la clé privée du serveur, et ne peut
 pas lire les mots de passe des clients (ils sont chiffrés avec la clé publique du technicien).
 """
@@ -191,6 +195,95 @@ def store_forget(pid):
     return True
 
 
+ORDER_STAMP_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+SIG_RE = re.compile(r"^[A-Za-z0-9+/]+={0,2}$")
+NONCE_RE = re.compile(r"^[0-9a-f]{32}$")
+ORDERS = os.path.join(SPOOL, "orders")      # créé par inbox-receive.py (groupe pg20-inbox) ; on y dépose <ID>.json, le receveur y écrit <ID>.done.json
+MAX_ORDERS = 50
+ORDER_LOCK = threading.Lock()
+
+
+def valid_order_body(b):
+    """Forme stricte d'un ordre signé : {"order": {v, action, id, nonce, iat, exp}, "sig": <base64>}. La signature elle-même est vérifiée par le poste."""
+    if not (isinstance(b, dict) and set(b) == {"order", "sig"}):
+        return False
+    o, sig = b["order"], b["sig"]
+    if not (isinstance(o, dict) and set(o) == {"v", "action", "id", "nonce", "iat", "exp"}):
+        return False
+    return bool(o["v"] == 1 and o["action"] == "uninstall"
+                and isinstance(o["id"], str) and ID_RE.match(o["id"])
+                and isinstance(o["nonce"], str) and NONCE_RE.match(o["nonce"])
+                and isinstance(o["iat"], str) and ORDER_STAMP_RE.match(o["iat"])
+                and isinstance(o["exp"], str) and ORDER_STAMP_RE.match(o["exp"])
+                and isinstance(sig, str) and 100 <= len(sig) <= 1000 and SIG_RE.match(sig))
+
+
+def store_order(order, sig):
+    """Dépose l'ordre (écriture atomique, un seul ordre par ID : un nouveau remplace l'ancien et son accusé). Faux si trop d'ordres attendent."""
+    with ORDER_LOCK:
+        os.makedirs(ORDERS, mode=0o770, exist_ok=True)
+        pid = order["id"]
+        names = [n for n in os.listdir(ORDERS) if n.endswith(".json") and not n.endswith(".done.json") and not n.startswith(".")]
+        if len(names) >= MAX_ORDERS and (pid + ".json") not in names:
+            return False
+        try:
+            os.unlink(os.path.join(ORDERS, pid + ".done.json"))
+        except OSError:
+            pass
+        fd, tmp = tempfile.mkstemp(dir=ORDERS, prefix=".ord-")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump({"order": order, "sig": sig}, f)
+        os.chmod(tmp, 0o644)                  # lisible par le receveur (autre utilisateur) : l'ordre n'a rien de secret
+        os.replace(tmp, os.path.join(ORDERS, pid + ".json"))
+    return True
+
+
+def list_orders():
+    """Ordres déposés et leur état : done = le poste a signalé les avoir exécutés (accusé écrit par le receveur)."""
+    out = []
+    try:
+        names = sorted(n for n in os.listdir(ORDERS) if n.endswith(".json") and not n.endswith(".done.json") and not n.startswith("."))
+    except OSError:
+        return out
+    for n in names:
+        try:
+            with open(os.path.join(ORDERS, n), "r", encoding="utf-8") as f:
+                o = json.load(f)["order"]
+            item = {"id": str(o["id"]), "nonce": str(o["nonce"]), "iat": str(o["iat"]), "exp": str(o["exp"]), "done": False, "done_at": ""}
+            if not (ID_RE.match(item["id"]) and NONCE_RE.match(item["nonce"])):
+                continue
+            dp = os.path.join(ORDERS, item["id"] + ".done.json")
+            if os.path.exists(dp):
+                with open(dp, "r", encoding="utf-8") as f:
+                    dd = json.load(f)
+                if dd.get("nonce") == item["nonce"]:
+                    item["done"] = True
+                    item["done_at"] = str(dd.get("at", ""))
+            out.append(item)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return out
+
+
+def ack_order(pid, nonce):
+    """Le technicien a traité (ou annule) cet ordre : effacé avec son accusé, seulement si le numéro correspond. Renvoie le nombre de fichiers effacés."""
+    with ORDER_LOCK:
+        try:
+            with open(os.path.join(ORDERS, pid + ".json"), "r", encoding="utf-8") as f:
+                if json.load(f)["order"]["nonce"] != nonce:
+                    return 0
+        except (OSError, ValueError, KeyError, TypeError):
+            return 0
+        n = 0
+        for name in (pid + ".json", pid + ".done.json"):
+            try:
+                os.unlink(os.path.join(ORDERS, name))
+                n += 1
+            except OSError:
+                pass
+        return n
+
+
 def read_json_body(handler, limit=4096):
     length = int(handler.headers.get("Content-Length", ""))
     if not 0 < length <= limit:
@@ -232,10 +325,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = parts.path
         if path == "/health":
             return self._send(200, b'{"ok": true}')
-        if path in ("/peers", "/records"):
+        if path in ("/peers", "/records", "/orders"):
             if not self._authorized():
                 return self._send(401, b'{"error": "unauthorized"}')
             query = parse_qs(parts.query)
+            if path == "/orders":
+                found = list_orders()
+                return self._json(200, {"count": len(found), "orders": found})
             if path == "/records":
                 brief = query.get("brief", ["0"])[0] == "1"
                 recs = list_records(brief)
@@ -275,7 +371,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlsplit(self.path).path
-        if path not in ("/records/ack", "/records/validate", "/peers/forget"):
+        if path not in ("/records/ack", "/records/validate", "/peers/forget", "/orders", "/orders/ack"):
             return self._send(404, b'{"error": "not found"}')
         if not self._authorized():
             return self._send(401, b'{"error": "unauthorized"}')
@@ -286,6 +382,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if path == "/records/validate":
                 if not valid_item(body):
                     raise ValueError("id ou date")
+            elif path == "/orders":
+                if not valid_order_body(body):
+                    raise ValueError("ordre")
+            elif path == "/orders/ack":
+                if not (isinstance(body.get("id"), str) and ID_RE.match(body["id"]) and isinstance(body.get("nonce"), str) and NONCE_RE.match(body["nonce"])):
+                    raise ValueError("accusé")
             elif path == "/peers/forget":
                 if not (isinstance(body.get("id"), str) and ID_RE.match(body["id"])):
                     raise ValueError("id")
@@ -297,6 +399,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     raise ValueError("listes")
         except (ValueError, KeyError, TypeError, UnicodeDecodeError):
             return self._send(400, b'{"error": "bad request"}')
+
+        if path == "/orders":
+            try:
+                stored = store_order(body["order"], body["sig"])
+            except OSError as e:
+                sys.stderr.write("ordre non déposé: %s\n" % e)
+                return self._send(500, b'{"error": "write failed"}')
+            if not stored:
+                return self._send(503, b'{"error": "full"}')
+            sys.stderr.write("ordre de désinstallation déposé: id=%s\n" % body["order"]["id"])
+            return self._send(200, b'{"ok": true}')
+
+        if path == "/orders/ack":
+            n = ack_order(body["id"], body["nonce"])
+            sys.stderr.write("ordre traité ou annulé: id=%s (%d fichier(s))\n" % (body["id"], n))
+            return self._json(200, {"ok": True, "deleted": n})
 
         if path == "/peers/forget":
             try:

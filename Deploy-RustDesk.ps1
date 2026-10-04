@@ -51,6 +51,10 @@ param(
     [string]$InboxUrl,                      # réception des fiches sur votre serveur : hôte[:port], port par défaut 21120
     [string]$InboxPin,                      # empreinte SHA-256 (64 hex) du certificat TLS de ce service : seul ce certificat est accepté
     [switch]$NoInbox,                       # ne pas envoyer la fiche au serveur
+    [string]$TermsPath,                     # texte des conditions d'installation (intégré à l'exe par Build-Installer -TermsFile) : leur acceptation est exigée
+    [switch]$AcceptTerms,                   # déploiement par script : accepte les conditions sans fenêtre (la preuve note « accepté par paramètre »)
+    [string]$AgentPath,                     # tâche de maintenance (Pg20-Agent.ps1, intégrée à l'exe par Build-Installer) : exécute un ordre de désinstallation signé par le technicien
+    [switch]$NoAgent,                       # ne pas installer la tâche de maintenance
     [switch]$Uninstall
 )
 
@@ -149,6 +153,126 @@ function New-DeploymentRecord {
         Version     = $Version
         Serveur     = $ServerLabel
     }
+}
+
+# ---------------------------------------------------------------- Conditions d'installation (avertissement et preuve d'acceptation)
+# Le texte est un fichier (Build-Installer -TermsFile) dont la ligne « Version : ... » l'identifie. Avec la preuve ne voyage que son EMPREINTE
+# (SHA-256 du texte, fins de ligne normalisées) : le technicien garde les versions du texte et retrouve celle qui a été acceptée (Pg20-Clients.ps1).
+function Get-TermsInfo([string]$Path) {
+    $text = [IO.File]::ReadAllText($Path, [Text.Encoding]::UTF8) -replace "`r`n", "`n"
+    $sha = [BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($text))) -replace '-', ''
+    $ver = ''
+    if ($text -match '(?im)^\s*version\s*:\s*(?<v>[^\n]{1,40})$') { $ver = $Matches['v'].Trim() }
+    [pscustomobject]@{ text = $text; sha256 = $sha.ToLower(); version = $ver }
+}
+
+# La preuve : qui a accepté, quand, quel texte (empreinte), comment (fenêtre ou paramètre), combien de temps la fenêtre est restée ouverte.
+# Elle part dans la fiche chiffrée (et dans la ligne chiffrée de la clé USB) ; le serveur y ajoute sa propre heure de réception.
+function New-ConsentRecord($Terms, [string]$Name, [string]$Mode, [int]$Seconds) {
+    [ordered]@{
+        v = 1; version = $Terms.version; sha256 = $Terms.sha256; mode = $Mode; name = $Name
+        at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); seconds = $Seconds
+        user = $env:USERNAME; host = $env:COMPUTERNAME
+    }
+}
+
+# Version console (session sans fenêtres, ou fenêtre impossible à ouvrir) : texte affiché, puis nom saisi ET mot « J'ACCEPTE »
+function Read-TermsConsole($Terms) {
+    $t0 = Get-Date
+    Write-Host ''
+    Write-Host $Terms.text
+    Write-Host ''
+    $name = (Read-Host 'Nom et prénom de la personne qui accepte (Entrée sans rien saisir = refuser)').Trim()
+    if ($name.Length -lt 3) { return [pscustomobject]@{ accepted = $false; name = ''; seconds = 0 } }
+    $word = (Read-Host "Tapez J'ACCEPTE pour accepter ces conditions").Trim()
+    [pscustomobject]@{ accepted = ($word -ieq "J'ACCEPTE"); name = $name; seconds = [int]((Get-Date) - $t0).TotalSeconds }
+}
+
+# Fenêtre d'acceptation : le texte à lire, une case, le nom de la personne qui accepte. « Accepter » reste grisé tant que la case n'est pas cochée
+# et que le nom fait moins de 3 caractères ; fermer la fenêtre ou « Refuser » = refus (rien n'est installé). -OnShown : crochet pour les tests.
+function Show-TermsDialog($Terms, [scriptblock]$OnShown = $null) {
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+    [System.Windows.Forms.Application]::EnableVisualStyles()
+    $state = @{ accepted = $false; name = ''; seconds = 0 }
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+
+    $f = New-Object System.Windows.Forms.Form
+    $f.Text = "Conditions d'installation de l'accès à distance"
+    $f.ClientSize = New-Object System.Drawing.Size(700, 610)
+    $f.StartPosition = 'CenterScreen'; $f.TopMost = $true; $f.FormBorderStyle = 'FixedDialog'
+    $f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.ControlBox = $false
+    $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+
+    $title = New-Object System.Windows.Forms.Label
+    $title.Text = "Lisez ces conditions avant d'installer"
+    $title.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
+    $title.Location = New-Object System.Drawing.Point(14, 12); $title.Size = New-Object System.Drawing.Size(672, 28)
+
+    $box = New-Object System.Windows.Forms.TextBox
+    $box.Multiline = $true; $box.ReadOnly = $true; $box.ScrollBars = 'Vertical'; $box.WordWrap = $true; $box.BackColor = [System.Drawing.Color]::White
+    $box.Location = New-Object System.Drawing.Point(14, 46); $box.Size = New-Object System.Drawing.Size(672, 350)
+    $box.Text = ($Terms.text -replace "`n", "`r`n")
+
+    $chk = New-Object System.Windows.Forms.CheckBox
+    $chk.Text = "J'ai lu ces conditions et je les accepte."
+    $chk.Location = New-Object System.Drawing.Point(14, 408); $chk.Size = New-Object System.Drawing.Size(672, 26)
+
+    $lbl = New-Object System.Windows.Forms.Label
+    $lbl.Text = 'Nom et prénom de la personne qui accepte :'
+    $lbl.Location = New-Object System.Drawing.Point(14, 444); $lbl.Size = New-Object System.Drawing.Size(672, 22)
+    $tb = New-Object System.Windows.Forms.TextBox
+    $tb.Location = New-Object System.Drawing.Point(14, 470); $tb.Size = New-Object System.Drawing.Size(420, 28)
+
+    $ok = New-Object System.Windows.Forms.Button
+    $ok.Text = 'Accepter et installer'; $ok.Enabled = $false
+    $ok.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+    $ok.Location = New-Object System.Drawing.Point(14, 520); $ok.Size = New-Object System.Drawing.Size(250, 46)
+    $no = New-Object System.Windows.Forms.Button
+    $no.Text = 'Refuser et quitter'
+    $no.Location = New-Object System.Drawing.Point(280, 520); $no.Size = New-Object System.Drawing.Size(200, 46)
+    $hint = New-Object System.Windows.Forms.Label
+    $hint.Text = 'Une copie de ces conditions et de votre acceptation sera enregistrée sur ce PC.'
+    $hint.ForeColor = [System.Drawing.Color]::FromArgb(90, 90, 90)
+    $hint.Location = New-Object System.Drawing.Point(14, 574); $hint.Size = New-Object System.Drawing.Size(672, 22)
+    $f.Controls.AddRange(@($title, $box, $chk, $lbl, $tb, $ok, $no, $hint))
+    $f.CancelButton = $no
+
+    $update = { $ok.Enabled = ($chk.Checked -and $tb.Text.Trim().Length -ge 3) }
+    $chk.Add_CheckedChanged($update)
+    $tb.Add_TextChanged($update)
+    $ok.Add_Click({
+        $state.accepted = $true; $state.name = $tb.Text.Trim(); $state.seconds = [int]$sw.Elapsed.TotalSeconds
+        $f.Close()
+    })
+    $no.Add_Click({ $f.Close() })
+    $f.Add_Shown({
+        $f.Activate(); $box.Select(0, 0)
+        if ($OnShown) { & $OnShown $f @{ box = $box; check = $chk; name = $tb; ok = $ok; cancel = $no } }
+    })
+    [void]$f.ShowDialog()
+    $f.Dispose()
+    [pscustomobject]@{ accepted = [bool]$state.accepted; name = [string]$state.name; seconds = [int]$state.seconds }
+}
+
+# Copie des conditions et de l'acceptation, laissée sur le PC du client (C:\ProgramData\Pg20-Info) : il garde sa propre preuve.
+function Save-ConsentReceipt($Consent, $Terms, [string]$RdId, [string]$ClientName) {
+    $dir = Join-Path $env:ProgramData 'Pg20-Info'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    $path = Join-Path $dir ('Acceptation-{0}-{1:yyyyMMdd-HHmm}.txt' -f $RdId, (Get-Date))
+    $head = @(
+        "PREUVE D'ACCEPTATION DES CONDITIONS D'INSTALLATION", '',
+        "Client              : $ClientName",
+        "Poste               : $($Consent.host)",
+        "Session Windows     : $($Consent.user)",
+        "ID RustDesk         : $RdId",
+        "Accepté par         : $($Consent.name)",
+        "Date (heure du PC)  : $((Get-Date).ToString('dd.MM.yyyy HH:mm:ss'))",
+        "Mode d'acceptation  : $($Consent.mode)",
+        "Texte               : version $($Consent.version), empreinte SHA-256 $($Consent.sha256)", '',
+        '--------------------------------------------------------------------', ''
+    ) -join "`r`n"
+    [IO.File]::WriteAllText($path, $head + "`r`n" + ($Terms.text -replace "`n", "`r`n") + "`r`n", (New-Object Text.UTF8Encoding($true)))
+    $path
 }
 
 # ---------------------------------------------------------------- Envoi de la fiche au serveur du technicien
@@ -301,23 +425,279 @@ function Get-InstallerFromGitHub([string]$Version) {
     $dest
 }
 
+# ---------------------------------------------------------------- Désinstallation complète
+# Efface TOUT : service, processus, programme, règles de pare-feu « RustDesk » et dossiers de configuration que le désinstalleur de RustDesk laisse
+# derrière lui (ID, clés, serveur mémorisés : sans cela, une réinstallation repart avec la même identité). AUTONOME (aucune variable du script) :
+# le carnet du technicien en copie le texte tel quel dans la commande du bouton « Désinstaller » de « Pg20 - Se connecter » (Pg20-Clients.ps1).
+#   -ExpectedId : abandonne SANS rien toucher si ce poste n'a pas cet ID RustDesk (mauvaise fenêtre, mauvais poste).
+#   -DryRun     : n'efface rien, annonce seulement ce qui le serait.
+# Les autres paramètres ne servent qu'aux tests (identité simulée, dossiers de remplacement ; -SkipProgram : ni service ni programme).
+function Uninstall-RustDeskFully {
+    param(
+        [string]$ExpectedId = '',
+        [switch]$DryRun,
+        [switch]$SkipProgram,
+        [string]$CurrentId = '',
+        [string]$ProfileRoot = 'C:\Users',
+        [string]$ServiceProfile = 'C:\Windows\ServiceProfiles\LocalService',
+        [string]$LogDir = '',
+        [int]$NoticeSeconds = 0,                   # avant d'arrêter le service : laisse le temps de lire que la session RustDesk va se couper
+        [switch]$KeepAgent,                        # (appelé par la tâche de maintenance elle-même, qui se supprime ensuite) ne retire pas la tâche de maintenance
+        [string]$AgentDir = '',                    # (tests) dossier de la tâche de maintenance, par défaut « C:\Program Files\Pg20-Info\Agent »
+        [string]$AgentTask = 'Pg20-Info-Maintenance'
+    )
+    $ErrorActionPreference = 'Continue'
+    $result = [pscustomobject]@{ ok = $false; aborted = $false; needReboot = $false; id = ''; wiped = @(); left = @() }
+    $lines = New-Object System.Collections.Generic.List[string]
+    $say = {
+        param([string]$Text, [string]$Color = 'Gray')
+        Write-Host $Text -ForegroundColor $Color
+        $lines.Add(('{0:yyyy-MM-dd HH:mm:ss}  {1}' -f (Get-Date), $Text))
+    }
+    $tag = $(if ($DryRun) { '[simulation] ' } else { '' })
+    $rdExe = Join-Path $env:ProgramFiles 'RustDesk\rustdesk.exe'
+    $uninstallKeys = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*', 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    $findEntry = { Get-ItemProperty $uninstallKeys -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -eq 'RustDesk' } | Select-Object -First 1 }
+
+    if (-not $SkipProgram -and -not $DryRun) {
+        $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+        if (-not $isAdmin) {
+            & $say "Droits administrateur requis : ouvrez PowerShell en tant qu'administrateur (clic droit sur Démarrer), puis recommencez. Rien n'a été modifié." 'Yellow'
+            $result.aborted = $true
+            return $result
+        }
+    }
+
+    # Quel poste est-ce ? (demandé à RustDesk, sinon lu dans sa configuration)
+    $id = $CurrentId
+    if (-not $id -and -not $SkipProgram -and (Test-Path -LiteralPath $rdExe)) {
+        $o = Join-Path $env:TEMP ('rd-id-' + [guid]::NewGuid().ToString('N') + '.txt')
+        try {
+            $p = Start-Process -FilePath $rdExe -ArgumentList '--get-id' -RedirectStandardOutput $o -PassThru -WindowStyle Hidden
+            if (-not $p.WaitForExit(20000)) { try { $p.Kill() } catch { } }
+            Start-Sleep -Milliseconds 300
+            $t = [string](Get-Content -LiteralPath $o -Raw -ErrorAction SilentlyContinue)
+            if ($t.Trim() -match '^\d{6,}$') { $id = $t.Trim() }
+        }
+        catch { }
+        finally { [IO.File]::Delete($o) }
+    }
+    if (-not $id -and -not $SkipProgram) {
+        $toml = Join-Path $ServiceProfile 'AppData\Roaming\RustDesk\config\RustDesk.toml'
+        if (Test-Path -LiteralPath $toml) {
+            $m = Select-String -LiteralPath $toml -Pattern "^id\s*=\s*'(?<id>[^']+)'" | Select-Object -First 1
+            if ($m) { $id = $m.Matches[0].Groups['id'].Value }
+        }
+    }
+    $result.id = $id
+    if ($ExpectedId -and -not $SkipProgram) {
+        if (-not $id) {
+            & $say "L'ID de ce poste est illisible : par sécurité, rien n'a été modifié (la commande vise le poste $ExpectedId)." 'Yellow'
+            $result.aborted = $true
+            return $result
+        }
+        if ($id -ne $ExpectedId) {
+            & $say "ATTENTION : ce poste a l'ID $id, pas $ExpectedId. Mauvaise session ? Rien n'a été modifié." 'Yellow'
+            $result.aborted = $true
+            return $result
+        }
+    }
+    & $say ($tag + 'Désinstallation complète de RustDesk' + $(if ($id) { " (ID $id)" } else { '' })) 'Cyan'
+
+    if (-not $SkipProgram) {
+        if ($NoticeSeconds -gt 0 -and -not $DryRun -and (Get-Service -Name 'RustDesk' -ErrorAction SilentlyContinue)) {
+            & $say "Cette session RustDesk va se couper dans $NoticeSeconds secondes : c'est normal, la désinstallation continue sur ce poste (résultat noté dans C:\ProgramData\Pg20-Info)." 'Yellow'
+            Start-Sleep -Seconds $NoticeSeconds
+        }
+        if (Get-Service -Name 'RustDesk' -ErrorAction SilentlyContinue) {
+            & $say ($tag + 'Arrêt du service RustDesk')
+            if (-not $DryRun) { Stop-Service -Name 'RustDesk' -Force -ErrorAction SilentlyContinue }
+        }
+        $procs = @(Get-Process -Name 'rustdesk' -ErrorAction SilentlyContinue)
+        if ($procs.Count) {
+            & $say ($tag + "Fermeture de $($procs.Count) processus RustDesk")
+            if (-not $DryRun) { $procs | Stop-Process -Force -ErrorAction SilentlyContinue }
+        }
+        $inst = & $findEntry
+        if ($inst) {
+            & $say ($tag + "Désinstallation de RustDesk $($inst.DisplayVersion)")
+            if (-not $DryRun) {
+                $us = [string]$inst.UninstallString
+                if ($us -match '(?i)msiexec(\.exe)?\s+/[IX]\s*(\{[0-9A-F\-]{36}\})') { $uFile = 'msiexec.exe'; $uArgs = "/x $($Matches[2]) /qn /norestart" }
+                else { $uFile = 'cmd.exe'; $uArgs = '/c "' + $us + '"' }
+                $un = Start-Process -FilePath $uFile -ArgumentList $uArgs -PassThru -WindowStyle Hidden
+                if (-not $un.WaitForExit(300000)) { & $say 'Le désinstalleur est encore en cours après 5 minutes.' 'Yellow' }
+                elseif ($un.ExitCode -eq 3010) { $result.needReboot = $true }
+                Start-Sleep -Seconds 3
+            }
+        }
+        else { & $say "RustDesk n'apparaît pas dans les programmes installés : on nettoie ce qu'il a pu laisser." }
+
+        # Restes que le désinstalleur ne retire pas toujours : service, dossier du programme, règles de pare-feu
+        if (Get-Service -Name 'RustDesk' -ErrorAction SilentlyContinue) {
+            & $say ($tag + 'Suppression du service resté enregistré')
+            if (-not $DryRun) { & sc.exe delete RustDesk | Out-Null }
+        }
+        $progDir = Join-Path $env:ProgramFiles 'RustDesk'
+        if (Test-Path -LiteralPath $progDir) {
+            & $say ($tag + "Suppression du dossier $progDir")
+            if (-not $DryRun) { Remove-Item -LiteralPath $progDir -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+        try {
+            $fw = @(Get-NetFirewallRule -DisplayName '*RustDesk*' -ErrorAction SilentlyContinue)
+            if ($fw.Count) {
+                & $say ($tag + "Suppression de $($fw.Count) règle(s) de pare-feu RustDesk")
+                if (-not $DryRun) { $fw | Remove-NetFirewallRule -ErrorAction SilentlyContinue }
+            }
+        }
+        catch { }
+    }
+
+    # Configuration laissée par RustDesk : service (profil LocalService) et, pour chaque compte, AppData\Roaming\RustDesk et AppData\Local\rustdesk.
+    # C'est elle qui garde l'ID, les clés et le serveur : sans l'effacer, une réinstallation retrouve la même identité.
+    $dirs = New-Object System.Collections.Generic.List[string]
+    $dirs.Add((Join-Path $ServiceProfile 'AppData\Roaming\RustDesk'))
+    if (Test-Path -LiteralPath $ProfileRoot) {
+        foreach ($prof in @(Get-ChildItem -LiteralPath $ProfileRoot -Directory -Force -ErrorAction SilentlyContinue)) {
+            if ($prof.Name -in 'Public', 'Default', 'Default User', 'All Users') { continue }
+            $dirs.Add((Join-Path $prof.FullName 'AppData\Roaming\RustDesk'))
+            $dirs.Add((Join-Path $prof.FullName 'AppData\Local\rustdesk'))
+        }
+    }
+    foreach ($d in $dirs) {
+        if (-not (Test-Path -LiteralPath $d -ErrorAction SilentlyContinue)) { continue }       # en simulation sans droits administrateur, un dossier protégé est ignoré sans bruit
+        & $say ($tag + "Suppression de la configuration : $d")
+        if ($DryRun) { $result.wiped += $d; continue }
+        Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $d) { $result.left += $d } else { $result.wiped += $d }
+    }
+
+    if (-not $SkipProgram -and -not $DryRun) {
+        if (Get-Service -Name 'RustDesk' -ErrorAction SilentlyContinue) { $result.left += 'le service RustDesk' }
+        if (Test-Path -LiteralPath $rdExe) { $result.left += $rdExe }
+        if (Get-Process -Name 'rustdesk' -ErrorAction SilentlyContinue) { $result.left += 'un processus rustdesk' }
+        if (& $findEntry) { $result.left += "l'entrée « Applications et fonctionnalités »" }
+    }
+    $result.ok = (@($result.left).Count -eq 0)
+
+    # La tâche de maintenance (Pg20-Agent.ps1) n'a plus de raison d'être sans RustDesk : on la retire aussi, avec son dossier
+    if ($result.ok -and -not $DryRun -and -not $KeepAgent -and (-not $SkipProgram -or $AgentDir)) {
+        $agDir = $(if ($AgentDir) { $AgentDir } else { Join-Path $env:ProgramFiles 'Pg20-Info\Agent' })
+        $hasTask = $false
+        try { $hasTask = [bool](Get-ScheduledTask -TaskName $AgentTask -ErrorAction SilentlyContinue) } catch { }
+        if ($hasTask -or (Test-Path -LiteralPath $agDir)) {
+            & $say 'Suppression de la tâche de maintenance Pg20 Info'
+            try { Unregister-ScheduledTask -TaskName $AgentTask -Confirm:$false -ErrorAction SilentlyContinue } catch { }
+            if (Test-Path -LiteralPath $agDir) {
+                Remove-Item -LiteralPath $agDir -Recurse -Force -ErrorAction SilentlyContinue
+                $agParent = Split-Path -Parent $agDir
+                if ((Test-Path -LiteralPath $agParent) -and -not @(Get-ChildItem -LiteralPath $agParent -Force -ErrorAction SilentlyContinue).Count) { Remove-Item -LiteralPath $agParent -Force -ErrorAction SilentlyContinue }
+            }
+        }
+    }
+    if ($DryRun) { & $say "Simulation terminée : rien n'a été modifié." 'Cyan' }
+    elseif ($result.ok) { & $say ('Désinstallation terminée : RustDesk et sa configuration sont effacés de ce poste' + $(if ($result.needReboot) { ' (redémarrez le poste pour terminer)' } else { '' }) + '.') 'Green' }
+    else { & $say ('Désinstallation INCOMPLÈTE, il reste : ' + (@($result.left) -join ' ; ') + '. Redémarrez le poste puis recommencez.') 'Yellow' }
+    if (-not $DryRun) {
+        try {
+            $logFolder = $(if ($LogDir) { $LogDir } else { Join-Path $env:ProgramData 'Pg20-Info' })
+            New-Item -ItemType Directory -Force -Path $logFolder | Out-Null
+            [IO.File]::WriteAllLines((Join-Path $logFolder ('desinstallation-{0:yyyyMMdd-HHmmss}.txt' -f (Get-Date))), $lines, (New-Object Text.UTF8Encoding($true)))
+        }
+        catch { }
+    }
+    $result
+}
+
+# ---------------------------------------------------------------- Tâche de maintenance (désinstallation sur ordre signé du technicien)
+# Pg20-Agent.ps1 est copié dans « C:\Program Files\Pg20-Info\Agent » (dossier réservé au système et aux administrateurs : un utilisateur ordinaire ne
+# peut pas le modifier) avec sa configuration (serveur, empreinte du certificat, clé publique du technicien), et une tâche planifiée du compte
+# système l'exécute au démarrage puis toutes les 30 minutes, sans fenêtre. Il n'exécute qu'un ordre « désinstaller » SIGNÉ par le technicien.
+function Get-FunctionSource([string]$ScriptPath, [string]$Name) {
+    $tok = $null; $err = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile($ScriptPath, [ref]$tok, [ref]$err)
+    $fn = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] }, $true)) | Where-Object { $_.Name -eq $Name } | Select-Object -First 1
+    if (-not $fn) { throw "Fonction $Name introuvable dans $ScriptPath." }
+    $fn.Extent.Text
+}
+
+# Renvoie ok/message. En cas d'échec, rien ne reste (ni tâche ni dossier). -TestUserSid / -TestAsCurrentUser : tests hors compte système.
+function Install-MaintenanceAgent {
+    param(
+        [Parameter(Mandatory)][string]$AgentSource,
+        [Parameter(Mandatory)][string]$FunctionSource,
+        [Parameter(Mandatory)][string]$Server,
+        [Parameter(Mandatory)][string]$Pin,
+        [Parameter(Mandatory)][string]$PublicKeyXml,
+        [string]$Dir = '',
+        [string]$TaskName = 'Pg20-Info-Maintenance',
+        [int]$IntervalMinutes = 30,
+        [string]$TestUserSid = '',
+        [switch]$TestAsCurrentUser
+    )
+    if (-not $Dir) { $Dir = Join-Path $env:ProgramFiles 'Pg20-Info\Agent' }
+    $marker = '# __UNINSTALL_FUNCTION__'
+    try {
+        $src = [IO.File]::ReadAllText($AgentSource, [Text.Encoding]::UTF8)
+        $at = $src.IndexOf($marker)
+        if ($at -lt 0 -or $src.IndexOf($marker, $at + 1) -ge 0) { throw "marqueur $marker absent ou en double dans le script de la tâche" }
+        $full = $src.Replace($marker, $FunctionSource)
+        $perr = $null; $ptok = $null
+        [void][Management.Automation.Language.Parser]::ParseInput($full, [ref]$ptok, [ref]$perr)
+        if (@($perr).Count) { throw "script de la tâche invalide : $($perr[0].Message)" }
+
+        # Dossier d'abord verrouillé (système + administrateurs, sans héritage), fichiers ensuite : ils en héritent
+        New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+        $acl = New-Object Security.AccessControl.DirectorySecurity
+        $acl.SetAccessRuleProtection($true, $false)
+        $sids = @('S-1-5-18', 'S-1-5-32-544'); if ($TestUserSid) { $sids += $TestUserSid }
+        foreach ($sid in $sids) {
+            $rule = New-Object Security.AccessControl.FileSystemAccessRule((New-Object Security.Principal.SecurityIdentifier($sid)), 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+            $acl.AddAccessRule($rule)
+        }
+        (New-Object IO.DirectoryInfo($Dir)).SetAccessControl($acl)        # ne modifie que les droits d'accès (Set-Acl exige en plus un privilège d'audit)
+
+        $scriptPath = Join-Path $Dir 'Pg20-Agent.ps1'
+        [IO.File]::WriteAllText($scriptPath, $full, (New-Object Text.UTF8Encoding($true)))
+        $cfg = ConvertTo-Json -InputObject ([ordered]@{
+                v = 1; server = $Server; pin = $Pin.ToLower(); pubkey = $PublicKeyXml; task = $TaskName
+                installedAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            }) -Compress
+        [IO.File]::WriteAllText((Join-Path $Dir 'agent.json'), $cfg, (New-Object Text.UTF8Encoding($false)))
+
+        $psExe = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        # Compte système : la tâche tourne hors de toute session, aucune fenêtre n'est possible (pas de -WindowStyle, pas de « Bypass » : ces options
+        # ressemblent trop à un logiciel malveillant pour certains antivirus). Le script est local et n'a pas de marque « téléchargé » : RemoteSigned suffit.
+        $action = New-ScheduledTaskAction -Execute $psExe -WorkingDirectory $Dir `
+            -Argument ('-NoProfile -NonInteractive -ExecutionPolicy RemoteSigned {0}-File "{1}"' -f $(if ($TestAsCurrentUser) { '-WindowStyle Hidden ' } else { '' }), $scriptPath)
+        $every = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(2)) -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes)
+        $triggers = @($every)
+        if (-not $TestAsCurrentUser) {            # un déclencheur « au démarrage » exige les droits administrateur : absent des tests
+            $boot = New-ScheduledTaskTrigger -AtStartup
+            $boot.Delay = 'PT3M'
+            $triggers = @($boot, $every)
+        }
+        $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -Hidden `
+            -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+        $principal = $(if ($TestAsCurrentUser) { New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited }
+                       else { New-ScheduledTaskPrincipal -UserId 'S-1-5-18' -LogonType ServiceAccount -RunLevel Highest })
+        Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers -Settings $settings -Principal $principal -Force `
+            -Description "Pg20 Info : désinstalle RustDesk de ce poste, uniquement sur ordre signé du technicien (conditions d'installation, point 2)." | Out-Null
+        if (-not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) { throw 'la tâche planifiée est introuvable après sa création' }
+        [pscustomobject]@{ ok = $true; message = ''; dir = $Dir; task = $TaskName }
+    }
+    catch {
+        $why = $_.Exception.Message
+        try { Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue } catch { }
+        if (Test-Path -LiteralPath $Dir) { Remove-Item -LiteralPath $Dir -Recurse -Force -ErrorAction SilentlyContinue }
+        [pscustomobject]@{ ok = $false; message = $why; dir = $Dir; task = $TaskName }
+    }
+}
+
 # ---------------------------------------------------------------- Désinstallation
 if ($Uninstall) {
-    $inst = Get-InstalledRustDesk
-    if (-not $inst) { Write-Warn 'RustDesk n''est pas installé.'; return }
-    Write-Step "Désinstallation de RustDesk $($inst.DisplayVersion)"
-    Stop-Service $ServiceName -Force -ErrorAction SilentlyContinue
-    Get-Process rustdesk -ErrorAction SilentlyContinue | Stop-Process -Force
-    $cmd = Get-UninstallCommand $inst
-    $un = Start-Process -FilePath $cmd.File -ArgumentList $cmd.Args -PassThru -WindowStyle Hidden
-    if (-not $un.WaitForExit(300000)) { Write-Warn 'Le désinstalleur est encore en cours après 5 minutes.' }
-    $code = if ($un.HasExited) { $un.ExitCode } else { -1 }
-    Start-Sleep 3
-    $still = [bool](Get-Service $ServiceName -ErrorAction SilentlyContinue) -or (Test-Path $RdExe)
-    if (-not $still) { Write-Ok 'RustDesk désinstallé.' }
-    elseif ($code -eq 3010) { Write-Warn 'RustDesk est désinstallé : redémarrez le poste pour terminer.' }
-    else { Write-Warn "RustDesk est encore présent (code de sortie $code). Redémarrez le poste puis relancez -Uninstall, ou utilisez « Applications et fonctionnalités »." }
-    return
+    $u = Uninstall-RustDeskFully
+    if ($u.ok) { exit 0 } else { exit 1 }
 }
 
 # ---------------------------------------------------------------- Contrôle des paramètres
@@ -327,6 +707,34 @@ if ($Password) { $problem = Test-PasswordPolicy $Password; if ($problem) { throw
 # ---------------------------------------------------------------- Questions (nom du client, mot de passe)
 # Posées d'emblée : on répond, puis tout le reste s'exécute sans intervention.
 $interactive = -not $NoPrompt -and [Environment]::UserInteractive
+
+# ---------------------------------------------------------------- Conditions d'installation
+# Avec un texte de conditions (-TermsPath, intégré à l'exe par Build-Installer -TermsFile), RIEN n'est installé tant qu'elles ne sont pas acceptées :
+# fenêtre à l'écran, ou -AcceptTerms (déploiement par script : la preuve note « accepté par paramètre »). Refus = code de sortie 20 ; mode silencieux
+# sans -AcceptTerms = code 21.
+$consent = $null; $terms = $null
+if ($TermsPath) {
+    if (-not (Test-Path -LiteralPath $TermsPath)) { throw "Texte des conditions introuvable : $TermsPath" }
+    $terms = Get-TermsInfo $TermsPath
+    if (-not $terms.text.Trim()) { throw 'Le texte des conditions est vide.' }
+    if ($AcceptTerms) {
+        $consent = New-ConsentRecord $terms '(accepté par paramètre)' 'parametre' 0
+    }
+    elseif ($interactive) {
+        $ans = $null
+        try { $ans = Show-TermsDialog $terms } catch { $ans = Read-TermsConsole $terms }
+        if (-not $ans.accepted) {
+            Write-Warn "Conditions refusées : rien n'a été installé ni modifié."
+            exit 20
+        }
+        $consent = New-ConsentRecord $terms $ans.name 'dialogue' $ans.seconds
+    }
+    else {
+        Write-Warn "Cette installation exige l'acceptation des conditions : ajoutez -AcceptTerms (avec l'exe : /accept) si le client les a acceptées. Rien n'a été installé."
+        exit 21
+    }
+}
+
 if ($interactive) {
     try {
         if (-not $ClientName) {
@@ -446,6 +854,25 @@ foreach ($opt in 'custom-rendezvous-server', 'approve-mode', 'verification-metho
     Write-Host ("    {0,-26} = {1}" -f $opt, $(if ($v) { $v } else { '(par défaut)' }))
 }
 
+# ---------------------------------------------------------------- Tâche de maintenance (désinstallation sur ordre signé)
+# Seulement si les conditions (qui la décrivent, point 2) ont été acceptées, et si le poste sait où lire les ordres (serveur + empreinte) et comment les
+# vérifier (clé publique du technicien). Un échec n'arrête rien : le technicien saura (champ « agent » de la fiche) qu'il doit désinstaller ce poste à la main.
+$agentInstalled = $false
+if (-not $NoAgent -and -not $NoInbox -and $consent -and $TechPublicKey -and $InboxUrl -and $InboxPin -match '^[0-9a-fA-F]{64}$') {
+    $selfPath = $(if ($PSCommandPath) { $PSCommandPath } else { $MyInvocation.MyCommand.Path })
+    if (-not $AgentPath -and $selfPath) { $beside = Join-Path (Split-Path -Parent $selfPath) 'Pg20-Agent.ps1'; if (Test-Path -LiteralPath $beside) { $AgentPath = $beside } }
+    if ($AgentPath -and (Test-Path -LiteralPath $AgentPath)) {
+        Write-Step 'Installation de la tâche de maintenance (désinstallation sur ordre signé du technicien)'
+        try {
+            $ag = Install-MaintenanceAgent -AgentSource $AgentPath -FunctionSource (Get-FunctionSource $selfPath 'Uninstall-RustDeskFully') `
+                -Server $InboxUrl -Pin $InboxPin -PublicKeyXml $TechPublicKey
+            if ($ag.ok) { $agentInstalled = $true; Write-Ok 'Tâche de maintenance installée (démarrage + toutes les 30 minutes, sans fenêtre)' }
+            else { Write-Warn "Tâche de maintenance non installée : $($ag.message.TrimEnd(".")). Ce poste devra être désinstallé à la main." }
+        }
+        catch { Write-Warn "Tâche de maintenance non installée : $($_.Exception.Message). Ce poste devra être désinstallé à la main." }
+    }
+}
+
 # ---------------------------------------------------------------- Envoi de la fiche au serveur du technicien
 $inboxSent = $false; $controlCode = ''; $follow = ''
 if ($TechPublicKey -and $InboxUrl -and $InboxPin -and -not $NoInbox) {
@@ -455,13 +882,22 @@ if ($TechPublicKey -and $InboxUrl -and $InboxPin -and -not $NoInbox) {
         $record = [ordered]@{
             v = 1; id = $rdId; name = $ClientName; host = $env:COMPUTERNAME; password = $Password
             ver = $ver; ts = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+            agent = $agentInstalled
         }
+        if ($consent) { $record['consent'] = $consent }          # la preuve d'acceptation voyage dans la fiche chiffrée
         $sent = Send-InboxRecord -Endpoint $InboxUrl -Pin $InboxPin -Id $rdId -Label $ClientName -Blob (New-Envelope $record $TechPublicKey)
         if ($sent.ok) { $inboxSent = $true; $controlCode = [string]$sent.code; $follow = [string]$sent.follow; Write-Ok 'Fiche reçue par votre serveur' }
         else { Write-Warn "Fiche non envoyée : $($sent.message)." }
     }
     catch { Write-Warn "Fiche non envoyée : $($_.Exception.Message)." }
     if (-not $inboxSent) { $controlCode = ''; $follow = '' }
+}
+
+# ---------------------------------------------------------------- Copie des conditions laissée chez le client
+$receiptPath = ''
+if ($consent -and $terms) {
+    try { $receiptPath = Save-ConsentReceipt $consent $terms $rdId $ClientName }
+    catch { Write-Warn "Copie des conditions non enregistrée sur ce PC : $($_.Exception.Message)" }
 }
 
 # ---------------------------------------------------------------- Résultat
@@ -477,6 +913,18 @@ if (-not $NoSaveCredentials) {
     New-DeploymentRecord -ClientName $ClientName -ComputerName $env:COMPUTERNAME -Id $rdId -Password $Password `
         -Version $ver -ServerLabel $serverLabel -TechPublicKey $TechPublicKey |
         Export-Csv -Path $csv -Append -NoTypeInformation -Encoding UTF8
+    if ($consent -or $agentInstalled) {
+        # La preuve d'acceptation (et le fait que la tâche de maintenance est installée) suit la fiche sur la clé USB, dans un fichier à part (le format de
+        # rustdesk-deployments.csv ne change pas) : chiffrée pour le technicien, ou en clair si l'exe n'a pas sa clé publique (comme le mot de passe dans ce cas).
+        $cs = Join-Path $OutDir 'rustdesk-consents.csv'
+        $cEnc = ''; $cJson = ''
+        $side = [ordered]@{ v = 1; id = $rdId; agent = $agentInstalled }
+        if ($consent) { $side['consent'] = $consent }
+        if ($TechPublicKey) { $cEnc = New-Envelope $side $TechPublicKey }
+        else { $cJson = ConvertTo-Json -InputObject $side -Compress }
+        [pscustomobject]@{ Date = (Get-Date).ToString('yyyy-MM-dd HH:mm'); ID = $rdId; ConsentEnc = $cEnc; ConsentJson = $cJson } |
+            Export-Csv -Path $cs -Append -NoTypeInformation -Encoding UTF8
+    }
     # Mot de passe en clair : accès limité aux administrateurs. Chiffré : aucune restriction nécessaire (et l'outil du technicien peut le lire sans élévation).
     if ($new -and -not $TechPublicKey) { icacls $csv /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' | Out-Null }
 }
@@ -493,6 +941,8 @@ $pwShown = if ($delivered) { '(transmis au technicien, chiffré : rien à noter)
 Write-Host "  Mot de passe permanent : $pwShown"
 if ($inboxSent) { Write-Host '  Fiche envoyée au serveur du technicien : oui' }
 if ($controlCode) { Write-Host "  Code de contrôle : $controlCode   (le technicien le compare avec celui de son téléphone)" -ForegroundColor Yellow }
+if ($consent) { Write-Host ("  Conditions acceptées : {0} ({1}){2}" -f $consent.name, $consent.mode, $(if ($receiptPath) { " ; copie : $receiptPath" } else { '' })) }
+if ($agentInstalled) { Write-Host '  Tâche de maintenance : installée (désinstallation à distance, uniquement sur ordre signé du technicien)' }
 if (-not $NoSaveCredentials) { Write-Host "  Enregistré dans : $csv$(if (-not $encrypted) { ' (accès limité aux administrateurs)' })" }
 Write-Host '================================================' -ForegroundColor Green
 if ($inboxSent) { Write-Warn 'Rien à noter : la fiche est arrivée sur le serveur du technicien, qui la validera depuis son téléphone avec le code de contrôle ci-dessus.' }

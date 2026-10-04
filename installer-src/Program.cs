@@ -87,10 +87,12 @@ internal static class Program
         // Options propres au lanceur (non transmises au script)
         bool silent = false;
         bool save = false;
+        bool accept = false;
         for (int i = userArgs.Count - 1; i >= 0; i--)
         {
             if (string.Equals(userArgs[i], "/silent", StringComparison.OrdinalIgnoreCase)) { silent = true; userArgs.RemoveAt(i); }
             else if (string.Equals(userArgs[i], "/save", StringComparison.OrdinalIgnoreCase)) { save = true; userArgs.RemoveAt(i); }
+            else if (string.Equals(userArgs[i], "/accept", StringComparison.OrdinalIgnoreCase)) { accept = true; userArgs.RemoveAt(i); }
         }
 
         // Paramètres figés à la compilation (serveur, clé, nom du client...), un argument par ligne
@@ -104,6 +106,9 @@ internal static class Program
             }
         }
         scriptArgs.AddRange(userArgs);
+
+        // Déploiement par script : /accept = le client a accepté les conditions (la preuve note « accepté par paramètre »)
+        if (accept && !HasArg(scriptArgs, "-AcceptTerms")) scriptArgs.Add("-AcceptTerms");
 
         // Mode silencieux : aucune question (nom du client, mot de passe) ni pause finale
         if (silent && !HasArg(scriptArgs, "-NoPrompt")) scriptArgs.Add("-NoPrompt");
@@ -142,8 +147,26 @@ internal static class Program
                 scriptArgs.Add(setupPath);
             }
 
+            // Conditions d'installation embarquées (build avec -TermsFile) : le script exige leur acceptation avant toute installation
+            if (HasResource("terms.txt") && !HasArg(scriptArgs, "-TermsPath"))
+            {
+                string termsPath = Path.Combine(workDir, "terms.txt");
+                ExtractResource("terms.txt", termsPath);
+                scriptArgs.Add("-TermsPath");
+                scriptArgs.Add(termsPath);
+            }
+
+            // Tâche de maintenance embarquée (build sans -NoAgent) : désinstallation à distance sur ordre signé du technicien, décrite dans les conditions
+            if (HasResource("Pg20-Agent.ps1") && !HasArg(scriptArgs, "-AgentPath") && !HasArg(scriptArgs, "-NoAgent"))
+            {
+                string agentPath = Path.Combine(workDir, "Pg20-Agent.ps1");
+                ExtractResource("Pg20-Agent.ps1", agentPath);
+                scriptArgs.Add("-AgentPath");
+                scriptArgs.Add(agentPath);
+            }
+
             StringBuilder cmd = new StringBuilder();
-            cmd.Append("-NoProfile -ExecutionPolicy Bypass -File ").Append(Quote(scriptPath));
+            cmd.Append("-NoProfile -Sta -ExecutionPolicy Bypass -File ").Append(Quote(scriptPath));
             foreach (string a in scriptArgs) cmd.Append(' ').Append(Quote(a));
 
             ProcessStartInfo psi = new ProcessStartInfo();
@@ -181,7 +204,11 @@ internal static class Program
         if (!silent && !validatedExit)
         {
             Console.WriteLine();
-            Console.WriteLine(exitCode == 0 ? "Terminé. Appuyez sur une touche pour fermer cette fenêtre..." : "Échec (code " + exitCode + "). Appuyez sur une touche pour fermer cette fenêtre...");
+            string closing = "Appuyez sur une touche pour fermer cette fenêtre...";
+            if (exitCode == 0) Console.WriteLine("Terminé. " + closing);
+            else if (exitCode == 20) Console.WriteLine("Installation annulée : les conditions n'ont pas été acceptées, rien n'a été installé. " + closing);
+            else if (exitCode == 21) Console.WriteLine("Installation refusée : les conditions doivent être acceptées (option /accept pour un déploiement par script). " + closing);
+            else Console.WriteLine("Échec (code " + exitCode + "). " + closing);
             try { Console.ReadKey(true); } catch (InvalidOperationException) { }
         }
         return exitCode;

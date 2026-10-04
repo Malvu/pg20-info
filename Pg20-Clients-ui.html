@@ -149,7 +149,9 @@ function card(c) {
     pending ? h('button', { onclick: () => { closeMenus(); act('validate', c, null, 'Poste validé'); } }, c.incoming ? 'Valider la mise à jour' : 'Valider ce poste') : null,
     h('button', { onclick: () => { closeMenus(); const n = prompt('Nom du client pour l’ID ' + c.idText + ' :', c.unknown ? '' : c.name); if (n && n.trim()) act('rename', c, { name: n.trim() }, 'Nom enregistré'); } }, 'Renommer'),
     h('button', { onclick: () => { closeMenus(); act('hide', c, { hidden: !hidden }, hidden ? 'Client affiché' : 'Client masqué'); } }, hidden ? 'Afficher à nouveau' : 'Masquer'),
-    h('button', { class: 'danger', onclick: () => { closeMenus(); if (confirm('Supprimer « ' + c.name + ' » (ID ' + c.idText + ') ?\n\nIl sera retiré de ce PC (mot de passe effacé), de la clé USB si elle est branchée, et du serveur.\nSi RustDesk est encore installé chez le client, il se réenregistrera et réapparaîtra « À valider ».\n\nAction définitive.')) act('delete', c, null, 'Client supprimé'); } }, 'Supprimer le client (PC, clé USB, serveur)…'),
+    c.hasConsent ? h('button', { onclick: () => { closeMenus(); act('proof', c, null, 'Preuve d’acceptation enregistrée'); } }, 'Exporter la preuve d’acceptation') : null,
+    c.uninstallSince ? h('button', { onclick: () => { closeMenus(); if (confirm('Annuler la désinstallation demandée pour « ' + c.name + ' » ?\n\nLe poste ne sera pas désinstallé (sauf s’il l’a déjà fait).')) act('cancel-uninstall', c, null, 'Désinstallation annulée'); } }, 'Annuler la désinstallation demandée…') : null,
+    h('button', { class: 'danger', onclick: () => { closeMenus(); if (confirm('Supprimer « ' + c.name + ' » (ID ' + c.idText + ') ?\n\nIl sera retiré de ce PC (mot de passe effacé), de la clé USB si elle est branchée, et du serveur.\nSi RustDesk est encore installé chez le client, il se réenregistrera et réapparaîtra « À valider ».\n\nLes preuves d’acceptation déjà exportées (Documents\\Pg20-Info-Preuves) sont conservées.\n\nAction définitive.')) act('delete', c, null, 'Client supprimé'); } }, 'Supprimer le client (PC, clé USB, serveur)…'),
     h('button', { onclick: () => { closeMenus(); if (confirm('Oublier « ' + c.name + ' » sur ce PC seulement ?\n\nSon mot de passe sera effacé de ce PC et la fiche restera masquée. Le serveur et la clé USB ne sont pas modifiés.')) act('forget', c, null, 'Client oublié'); } }, 'Oublier sur ce PC seulement')
   );
   return h('div', { class: 'card' + (pending ? ' pending' : '') + (hidden ? ' hidden' : '') },
@@ -157,10 +159,14 @@ function card(c) {
     h('div', { class: 'main' },
       h('div', { class: 'name' }, c.name, c.isNew ? h('span', { class: 'new' }, 'nouveau') : null,
         h('span', { class: 'pill ' + (pending ? 'warn' : hidden ? 'mute' : 'ok') },
-          pending ? (c.incoming ? 'Mise à jour reçue · à valider' : c.viaServer ? 'Fiche reçue · à valider' : c.unknown ? 'Poste inconnu · à valider' : 'À valider') : hidden ? 'Masqué' : 'Validé')),
+          pending ? (c.incoming ? 'Mise à jour reçue · à valider' : c.viaServer ? 'Fiche reçue · à valider' : c.unknown ? 'Poste inconnu · à valider' : 'À valider') : hidden ? 'Masqué' : 'Validé'),
+        c.uninstallSince ? h('span', { class: 'pill warn' }, 'Désinstallation demandée') : null),
       h('div', { class: 'sub' }, 'ID ' + c.idText + (c.host ? ' · ' + c.host : '')),
       pending && c.code ? h('div', { class: 'codebox' }, 'Code de contrôle', h('b', {}, c.code), '— doit être identique à celui affiché chez le client') : null,
       pending && c.incoming ? h('div', { class: 'incoming' }, 'Nouvelles données reçues : ' + c.incoming.name + (c.incoming.host ? ' · ' + c.incoming.host : '') + (c.incoming.installed ? ' · ' + c.incoming.installed : '') + '. Elles remplaceront les actuelles (dont le mot de passe) seulement si vous validez.') : null,
+      c.uninstallSince ? h('div', { class: 'incoming' }, 'Désinstallation demandée le ' + c.uninstallSince + ' : le poste s’en charge seul, sans rien afficher, dans les 30 minutes qui suivent son allumage (connecté à internet). Le client disparaîtra alors de cette liste.') : null,
+      c.consent ? h('div', { class: 'meta' }, '✔ ' + c.consent) : null,
+      c.agent && !c.uninstallSince ? h('div', { class: 'meta' }, '⟳ Désinstallation à distance automatique disponible (bouton « Désinstaller… » de la fenêtre « Se connecter »)') : null,
       h('div', { class: 'meta' }, (c.installed ? 'Installé le ' + c.installed : 'Installation non enregistrée sur la clé') + ' · ' + (c.firstSeen ? 'vu par le serveur le ' + c.firstSeen : 'pas encore vu par le serveur'))),
     h('div', { class: 'actions' },
       h('button', { class: 'primary', onclick: () => {

@@ -28,6 +28,7 @@ param(
     [switch]$Quick,           # petite fenêtre « Se connecter à un client » (recherche + double-clic), sans navigateur : pour l'icône du bureau
     [int]$AutoPick,           # (tests) avec -Quick : choisit automatiquement le N-ième client et clique sur « Se connecter »
     [switch]$AutoDelete,      # (tests) avec -Quick -AutoPick : SUPPRIME le client choisi (sans confirmation) au lieu de s'y connecter
+    [switch]$AutoUninstall,   # (tests) avec -Quick -AutoPick : envoie (ou annule) l'ordre de désinstallation du client choisi, sans boîtes de dialogue
     [string]$ShotPath,        # (tests) avec -Quick : enregistre une image de la fenêtre à cet emplacement
     [string]$TestNote,        # (tests) avec -Quick : texte de la zone de message (vérifier qu'un message long n'est pas coupé)
     [string]$ImportFrom,      # dossier ou fichier CSV à importer (au lieu des clés USB)
@@ -98,10 +99,14 @@ function Confirm-Client($Rec) {
     $inc = Get-Prop $Rec 'incoming'
     if ($inc) {
         $Rec.name = $inc.name; $Rec.host = $inc.host; $Rec.installed = $inc.installed; $Rec.pwd = $inc.pwd
+        if ($inc.PSObject.Properties['consent'] -and $inc.consent) { Set-Prop $Rec 'consent' $inc.consent }
+        if ($inc.PSObject.Properties['agent']) { Set-Prop $Rec 'agent' ([bool]$inc.agent) }
         Clear-Props $Rec @('incoming')
     }
     Clear-Props $Rec @('code', 'viaServer')
     $Rec.unknown = $false; $Rec.status = 'Valide'
+    Set-Prop $Rec 'validatedAt' ((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))
+    Save-ConsentProofAuto $Rec
     Save-Store
 }
 
@@ -184,11 +189,114 @@ function Send-ServerValidated($Rec) {
     catch { }
 }
 
+# ---------------------------------------------------------------- Conditions acceptées par le client (preuve)
+# La preuve voyage dans la fiche chiffrée (ou dans rustdesk-consents.csv sur la clé USB) : on n'en garde que des champs connus, de longueur bornée.
+function Limit-Text($Value, [int]$Max) {
+    $t = (([string]$Value) -replace '[\x00-\x1f]', '').Trim()
+    if ($t.Length -gt $Max) { $t.Substring(0, $Max) } else { $t }
+}
+
+function ConvertTo-Consent($C, [string]$ServerAt = '') {
+    if (-not $C) { return $null }
+    try {
+        $sha = (Limit-Text $C.sha256 64).ToLower()
+        $mode = Limit-Text $C.mode 12
+        if ($sha -notmatch '^[0-9a-f]{64}$' -or $mode -notin 'dialogue', 'parametre') { return $null }
+        $secs = 0; [void][int]::TryParse([string]$C.seconds, [ref]$secs)
+        [pscustomobject]@{
+            version = (Limit-Text $C.version 40); sha256 = $sha; mode = $mode; name = (Limit-Text $C.name 80)
+            at = (Limit-Text $C.at 32); seconds = $secs; user = (Limit-Text $C.user 64); host = (Limit-Text $C.host 63); serverAt = (Limit-Text $ServerAt 40)
+        }
+    }
+    catch { $null }
+}
+
+function Get-ConsentSummary($Rec) {
+    $c = Get-Prop $Rec 'consent'
+    if (-not $c) { return '' }
+    if ($c.mode -eq 'parametre') { return "Conditions déclarées acceptées par paramètre (texte v$($c.version))" }
+    $when = $(if ($c.at) { Format-Local ([string]$c.at) } else { '' })
+    "Conditions acceptées le $when par $($c.name) (texte v$($c.version))"
+}
+
+# Cherche, dans le dossier « conditions » à côté de ce script, le texte dont l'empreinte est celle de la preuve
+function Find-TermsText([string]$Sha) {
+    $dir = Join-Path $PSScriptRoot 'conditions'
+    if (-not (Test-Path -LiteralPath $dir)) { return $null }
+    foreach ($f in @(Get-ChildItem -LiteralPath $dir -Filter '*.txt' -File)) {
+        $norm = [IO.File]::ReadAllText($f.FullName, [Text.Encoding]::UTF8) -replace "`r`n", "`n"
+        $h = ([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($norm))) -replace '-', '').ToLower()
+        if ($h -eq $Sha) { return [pscustomobject]@{ file = $f.Name; text = $norm } }
+    }
+    $null
+}
+
+# Exportation AUTOMATIQUE de la preuve : dès qu'un client dont la fiche porte une preuve est VALIDÉ (téléphone ou PC), ou importé de la clé USB,
+# elle est écrite dans Documents\Pg20-Info-Preuves : rien à faire, et elle survit à la suppression du client. Une seule fois par preuve
+# (proofExportedAt) : un fichier effacé exprès n'est pas recréé. Un échec d'écriture est noté dans watch.log et ne gêne jamais la validation.
+function Save-ConsentProofAuto($Rec, [string]$Dir = '') {
+    $c = Get-Prop $Rec 'consent'
+    if (-not $c -or (Get-Prop $Rec 'proofExportedAt') -eq [string]$c.at) { return }
+    try {
+        $p = Export-ConsentProof $Rec $Dir -Auto
+        Set-Prop $Rec 'proofExportedAt' ([string]$c.at)
+        Write-Watch "PREUVE D'ACCEPTATION enregistrée ($($Rec.name)) : $p" 'Green'
+    }
+    catch { Write-Watch "Preuve d'acceptation NON enregistrée ($($Rec.name)) : $($_.Exception.Message)" 'Yellow' }
+}
+
+# Écrit la preuve d'acceptation d'un client dans Documents\Pg20-Info-Preuves (avec le texte accepté s'il est dans le dossier « conditions »)
+function Export-ConsentProof($Rec, [string]$Dir = '', [switch]$Auto) {
+    $c = Get-Prop $Rec 'consent'
+    if (-not $c) { throw 'Aucune acceptation de conditions enregistrée pour ce client.' }
+    if (-not $Dir) { $Dir = $env:PG20_PROOF_DIR }                       # (tests) dossier imposé
+    if (-not $Dir) { $Dir = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Pg20-Info-Preuves' }
+    New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+    $safe = (([string]$Rec.name) -replace '[^\w\- ]', '_').Trim(); if (-not $safe) { $safe = 'client' }
+    if ($Auto) {
+        # nom stable (ID + date de l'acceptation) : indépendant d'un renommage du client, et jamais écrit deux fois
+        $when = Get-Date
+        try { $when = ([datetime]::Parse([string]$c.at, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal)).ToLocalTime() } catch { }
+        $path = Join-Path $Dir ('Preuve-{0}-{1:yyyyMMdd-HHmmss}.txt' -f $Rec.id, $when)
+        if (Test-Path -LiteralPath $path) { return $path }
+    }
+    else { $path = Join-Path $Dir ('Preuve-{0}-{1}-{2:yyyyMMdd-HHmm}.txt' -f $safe, $Rec.id, (Get-Date)) }
+    $found = Find-TermsText ([string]$c.sha256)
+    $how = $(if ($c.mode -eq 'dialogue') { "fenêtre d'acceptation (case cochée et nom saisi)" } else { 'paramètre -AcceptTerms (déclaré par le technicien, pas saisi par le client)' })
+    $srv = $(if ($c.serverAt) { Format-Local ([string]$c.serverAt) } else { '(non disponible : fiche reçue par la clé USB)' })
+    $vat = Get-Prop $Rec 'validatedAt'
+    $val = $(if ($vat) { Format-Local ([string]$vat) } else { "(client importé depuis la clé USB : validé d'office)" })
+    $txt = $(if ($found) { 'oui (' + $found.file + ')' } else { 'NON : placez le fichier de cette version dans le dossier « conditions » à côté de Pg20-Clients.ps1' })
+    $lines = @(
+        "PREUVE D'ACCEPTATION DES CONDITIONS D'INSTALLATION", '',
+        "Client                     : $($Rec.name)",
+        "ID RustDesk                : $(Format-RdId $Rec.id)",
+        "Poste                      : $($c.host)   (session Windows : $($c.user))",
+        "Accepté par                : $($c.name)",
+        "Mode d'acceptation         : $how",
+        "Date (horloge du PC)       : $(Format-Local ([string]$c.at))",
+        "Date (réception serveur)   : $srv",
+        "Durée de la fenêtre        : $($c.seconds) s",
+        "Validé par le technicien   : $val",
+        "Texte accepté              : version $($c.version)",
+        "Empreinte SHA-256 du texte : $($c.sha256)",
+        "Texte retrouvé             : $txt", '',
+        "Cette preuve est un journal tenu par l'outil du technicien : elle ne remplace pas un accord écrit signé.",
+        '', '--------------------------------------------------------------------', ''
+    )
+    $body = ($lines -join "`r`n")
+    if ($found) { $body += "`r`n" + ($found.text -replace "`n", "`r`n") + "`r`n" }
+    [IO.File]::WriteAllText($path, $body, (New-Object Text.UTF8Encoding($true)))
+    $path
+}
+
 # À appeler dans Use-Store. Le serveur est prévenu EN PREMIER : s'il est injoignable, rien n'est supprimé (pas de client à moitié effacé).
 function Remove-Client($Rec) {
     $id = [string]$Rec.id; $name = [string]$Rec.name
     $srv = Send-ServerForget $id
     if (-not $srv.ok) { return [pscustomobject]@{ ok = $false; message = "Rien n'a été supprimé : $($srv.message)"; usbRows = 0 } }
+    $ord = Get-Prop $Rec 'uninstallOrder'
+    if ($ord) { [void](Revoke-UninstallOrder $id ([string]$ord.nonce)) }      # un ordre de désinstallation encore en attente n'a plus de client : annulé (ou déjà exécuté : nettoyé)
     $usb = Remove-UsbRows $id
     $script:Store = @($script:Store | Where-Object { $_.id -ne $id })
     Save-Store
@@ -197,6 +305,83 @@ function Remove-Client($Rec) {
     if ($usb.removed) { $parts += "retiré de la clé USB ($($usb.removed) ligne(s))" }
     if ($usb.errors.Count) { $parts += "clé USB NON modifiée : $($usb.errors -join '; ')" }
     [pscustomobject]@{ ok = $true; message = "$name : " + ($parts -join ' ; ') + '.'; usbRows = $usb.removed }
+}
+
+# ---------------------------------------------------------------- Désinstallation automatique (ordre signé)
+# Les postes installés avec la tâche de maintenance (champ « agent » de leur fiche, Pg20-Agent.ps1) vont chercher, toutes les 30 minutes, un ordre
+# de désinstallation sur le serveur. Cet ordre est SIGNÉ ici, avec la clé privée de ce PC : le serveur le transporte sans pouvoir en fabriquer ni
+# en modifier un, et le poste le refuse si la signature, l'ID ou les dates ne correspondent pas. Quand le poste a exécuté l'ordre, il le signale :
+# Receive-OrderResults retire alors le client de la liste (ce PC, clé USB, serveur), sans rien d'autre à faire.
+function Send-UninstallOrder($Rec) {
+    $id = [string]$Rec.id
+    $cfg = Get-FeedConfig
+    if (-not $cfg) { return [pscustomobject]@{ ok = $false; message = 'accès au serveur non configuré'; order = $null } }
+    $key = Get-TechPrivateKeyXml
+    if (-not $key) { return [pscustomobject]@{ ok = $false; message = (Get-MissingKeyMessage); order = $null } }
+    try {
+        $o = New-UninstallOrder $id $key 30
+        $token = Unprotect-Dpapi $cfg.token
+        Invoke-RestMethod -Method Post -Uri ($cfg.url + '/orders') -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json' `
+            -Body (ConvertTo-Json -InputObject @{ order = $o.order; sig = $o.sig } -Depth 4 -Compress) -TimeoutSec 8 | Out-Null
+    }
+    catch { return [pscustomobject]@{ ok = $false; message = "ordre non déposé sur le serveur ($($_.Exception.Message)). Êtes-vous sur le réseau local ou sur le WireGuard ?"; order = $null } }
+    $info = [pscustomobject]@{ nonce = [string]$o.order.nonce; iat = [string]$o.order.iat; exp = [string]$o.order.exp; sentAt = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
+    Set-Prop $Rec 'uninstallOrder' $info
+    Save-Store
+    [pscustomobject]@{ ok = $true; message = ''; order = $info }
+}
+
+# Retire l'ordre du serveur (annulé, exécuté ou périmé). Renvoie $true si le serveur a répondu.
+function Revoke-UninstallOrder([string]$Id, [string]$Nonce) {
+    $cfg = Get-FeedConfig
+    if (-not $cfg -or $Id -notmatch '^\d{6,12}$' -or $Nonce -notmatch '^[0-9a-f]{32}$') { return $false }
+    try {
+        $token = Unprotect-Dpapi $cfg.token
+        Invoke-RestMethod -Method Post -Uri ($cfg.url + '/orders/ack') -Headers @{ Authorization = "Bearer $token" } -ContentType 'application/json' `
+            -Body (ConvertTo-Json -InputObject @{ id = $Id; nonce = $Nonce } -Compress) -TimeoutSec 6 | Out-Null
+        $true
+    }
+    catch { $false }
+}
+
+# Annulation demandée par le technicien : l'ordre est retiré du serveur ; en cas d'échec il est conservé (le poste pourrait encore l'exécuter)
+function Cancel-UninstallOrder($Rec) {
+    $ord = Get-Prop $Rec 'uninstallOrder'
+    if (-not $ord) { return [pscustomobject]@{ ok = $true; message = 'Aucune désinstallation n''était demandée.' } }
+    if (-not (Revoke-UninstallOrder ([string]$Rec.id) ([string]$ord.nonce))) {
+        return [pscustomobject]@{ ok = $false; message = "Annulation impossible : serveur injoignable (l'ordre reste en place). Êtes-vous sur le réseau local ou sur le WireGuard ?" }
+    }
+    Clear-Props $Rec @('uninstallOrder')
+    Save-Store
+    [pscustomobject]@{ ok = $true; message = "Désinstallation annulée : $($Rec.name) ne sera pas désinstallé (sauf si le poste l'avait déjà exécutée)." }
+}
+
+# Lit l'état des ordres déposés : un poste qui a exécuté son ordre est retiré de la liste ; un ordre jamais exécuté à son échéance est oublié.
+# À appeler dans Use-Store. Un ordre qui ne correspond à aucun client de CE PC n'est jamais touché.
+function Receive-OrderResults($Cfg, [string]$Token) {
+    $res = [pscustomobject]@{ uninstalled = @(); expired = @(); message = '' }
+    try { $feed = Invoke-RestMethod -Uri ($Cfg.url + '/orders') -Headers @{ Authorization = "Bearer $Token" } -TimeoutSec 8 }
+    catch { return $res }                           # serveur sans cette fonction (ancienne version) : rien à relever
+    $now = (Get-Date).ToUniversalTime()
+    foreach ($o in @($feed.orders | Where-Object { $_ })) {
+        $rec = Find-Client ([string]$o.id)
+        $ord = $(if ($rec) { Get-Prop $rec 'uninstallOrder' })
+        if (-not $ord -or [string]$ord.nonce -ne [string]$o.nonce) { continue }
+        if ($o.done) {
+            $name = [string]$rec.name; $cid = [string]$rec.id
+            $r = Remove-Client $rec
+            if ($r.ok) { $res.uninstalled += [pscustomobject]@{ id = $cid; name = $name } }
+            else { $res.message = "$name s'est désinstallé mais n'a pas pu être retiré de la liste : $($r.message)" }
+            continue
+        }
+        $exp = $null; try { $exp = ConvertTo-Utc ([string]$o.exp) } catch { }
+        if ($exp -and $exp -lt $now) {
+            [void](Revoke-UninstallOrder ([string]$rec.id) ([string]$ord.nonce))
+            Clear-Props $rec @('uninstallOrder'); Save-Store
+            $res.expired += [pscustomobject]@{ id = [string]$rec.id; name = [string]$rec.name }
+        }
+    }
+    $res
 }
 
 # ---------------------------------------------------------------- Import depuis la clé USB
@@ -217,6 +402,29 @@ function Find-DeploymentCsv {
 function Import-Deployments {
     $added = 0; $updated = 0; $csvs = @(Find-DeploymentCsv); $clearAfter = @()
     foreach ($csv in $csvs) {
+        # Preuves d'acceptation déposées par l'exe à côté de la clé (fichier à part : le format de rustdesk-deployments.csv ne change pas)
+        # Cette ligne dit aussi si la tâche de maintenance est installée (agent) ; les anciennes lignes ne contiennent que la preuve elle-même.
+        $cmap = @{}; $amap = @{}
+        $cf = Join-Path (Split-Path -Parent $csv) 'rustdesk-consents.csv'
+        if (Test-Path -LiteralPath $cf) {
+            foreach ($cr in @(Import-Csv -Path $cf -Encoding UTF8)) {
+                $cid = [string]($cr.ID -replace '\D', '')
+                if (-not $cid) { continue }
+                try {
+                    $o = $null
+                    if ($cr.ConsentEnc) { $o = Unprotect-Envelope $cr.ConsentEnc; if ([string]$o.id -ne $cid) { $o = $null } }
+                    elseif ($cr.ConsentJson) { $o = $cr.ConsentJson | ConvertFrom-Json }
+                    if (-not $o) { continue }
+                    if ($o.PSObject.Properties['consent'] -or $o.PSObject.Properties['agent']) {                     # enveloppe {v, id, agent, consent}
+                        $cn = ConvertTo-Consent $o.consent ''
+                        if ($o.PSObject.Properties['agent']) { $amap[$cid] = [bool]$o.agent }
+                    }
+                    else { $cn = ConvertTo-Consent $o '' }                                                           # ancien format : la preuve seule
+                    if ($cn) { $cmap[$cid] = $cn }
+                }
+                catch { }
+            }
+        }
         foreach ($r in (Import-Csv -Path $csv -Encoding UTF8)) {
             $id = [string]($r.ID -replace '\D', '')
             if (-not $id) { continue }
@@ -245,7 +453,10 @@ function Import-Deployments {
             }
             if ($rec) { $updated++ } else { $rec = New-Client $id; $script:Store = @($script:Store) + $rec; $added++ }
             $rec.name = $r.Client; $rec.host = $r.Poste; $rec.installed = $r.Date; $rec.unknown = $false
+            if ($cmap.ContainsKey($id)) { Set-Prop $rec 'consent' $cmap[$id] }
+            if ($amap.ContainsKey($id)) { Set-Prop $rec 'agent' $amap[$id] }
             if ($rec.status -ne 'Ignore') { $rec.status = 'Valide' }      # installé par vous : validé d'office
+            if ($rec.status -eq 'Valide') { Save-ConsentProofAuto $rec }
             if ($pw) { $rec.pwd = Protect-Dpapi $pw }
             Clear-Props $rec @('incoming', 'code', 'viaServer')           # la clé USB fait foi : une fiche du serveur en attente pour cet ID devient inutile
         }
@@ -282,26 +493,33 @@ function Receive-Records($Cfg, [string]$Token) {
             }
             $hostName = (([string]$f.host) -replace '[\x00-\x1f]', '').Trim(); if ($hostName.Length -gt 63) { $hostName = $hostName.Substring(0, 63) }
             $when = Format-Local ([string]$f.ts)
+            $consent = ConvertTo-Consent $f.consent ([string]$r.received_at)      # preuve d'acceptation (heure du serveur ajoutée) ; $null si l'exe n'en avait pas
+            $agentFlag = [bool]($f.PSObject.Properties['agent'] -and $f.agent)    # le poste a la tâche de maintenance : désinstallation à distance possible
 
             if (Find-Deleted $id) { Clear-Deleted $id }          # une fiche reçue est une nouvelle installation : le client supprimé réapparaît
             $rec = Find-Client $id
             $forgotten = $rec -and (Get-Prop $rec 'forgotten')
             $same = $rec -and -not $forgotten -and $rec.pwd -and ((Unprotect-Dpapi $rec.pwd) -eq $pw) -and $rec.name -eq $name
-            if ($same) { continue }                 # déjà connue à l'identique (fiche aussi relevée sur la clé USB) : rien à faire
+            if ($same) { if ($consent -and -not (Get-Prop $rec 'consent')) { Set-Prop $rec 'consent' $consent }; Set-Prop $rec 'agent' $agentFlag; continue }                 # déjà connue à l'identique (fiche aussi relevée sur la clé USB) : rien à faire
             if (-not $rec) { $rec = New-Client $id; $script:Store = @($script:Store) + $rec }
             if ($forgotten) { Clear-Props $rec @('forgotten'); $rec.status = 'A valider' }
             if (-not $rec.pwd -or $forgotten -or ($rec.unknown -and $rec.status -eq 'A valider')) {
                 # Poste encore sans données (inconnu, ou oublié) : la fiche le renseigne tout de suite, il reste « A valider »
                 $rec.name = $name; $rec.host = $hostName; $rec.installed = $when; $rec.unknown = $false; $rec.status = 'A valider'; $rec.pwd = Protect-Dpapi $pw
                 Clear-Props $rec @('incoming')
+                if ($consent) { Set-Prop $rec 'consent' $consent }
+                Set-Prop $rec 'agent' $agentFlag
                 Set-Prop $rec 'viaServer' $true; Set-Prop $rec 'code' $code
             }
             else {
                 # Client déjà connu avec d'autres données : la fiche attend votre validation (elle n'écrase rien d'avance)
-                Set-Prop $rec 'incoming' ([pscustomobject]@{ name = $name; host = $hostName; installed = $when; pwd = (Protect-Dpapi $pw) })
+                Set-Prop $rec 'incoming' ([pscustomobject]@{ name = $name; host = $hostName; installed = $when; pwd = (Protect-Dpapi $pw); consent = $consent; agent = $agentFlag })
                 Set-Prop $rec 'code' $code; Set-Prop $rec 'viaServer' $true
                 $rec.status = 'A valider'
             }
+            # Une fiche = une NOUVELLE installation : un ordre de désinstallation resté en attente pour cet ID ne doit pas toucher cette installation
+            $pendOrd = Get-Prop $rec 'uninstallOrder'
+            if ($pendOrd) { [void](Revoke-UninstallOrder $id ([string]$pendOrd.nonce)); Clear-Props $rec @('uninstallOrder') }
             Set-Prop $rec 'recvAt' ([string]$r.received_at)      # identifie la fiche : une validation du téléphone ne s'applique qu'à elle
             $res.received += [pscustomobject]@{ id = $id; name = $name; code = $code }
         }
@@ -363,12 +581,16 @@ function Invoke-FeedSync {
     }
     Save-Store
     $rr = Receive-Records $cfg $token
+    $orr = Receive-OrderResults $cfg $token
     $msg = "$($feed.count) poste(s) enregistré(s) sur le serveur"
     if ($rr.received.Count) { $msg += " · $($rr.received.Count) fiche(s) reçue(s)" }
     if ($rr.validated.Count) { $msg += " · $($rr.validated.Count) validée(s) depuis le téléphone" }
     if ($rr.rejected) { $msg += " · $($rr.rejected) fiche(s) écartée(s)" }
     if ($rr.message) { $msg += " · $($rr.message)" }
-    [pscustomobject]@{ ok = $true; message = $msg; added = $added; count = $feed.count; received = @($rr.received); validated = @($rr.validated); rejected = [int]$rr.rejected }
+    if ($orr.uninstalled.Count) { $msg += " · $($orr.uninstalled.Count) poste(s) désinstallé(s) à distance" }
+    if ($orr.message) { $msg += " · $($orr.message)" }
+    [pscustomobject]@{ ok = $true; message = $msg; added = $added; count = $feed.count; received = @($rr.received); validated = @($rr.validated); rejected = [int]$rr.rejected
+                       uninstalled = @($orr.uninstalled); expiredOrders = @($orr.expired) }
 }
 
 # ---------------------------------------------------------------- Affichage
@@ -442,6 +664,8 @@ function Show-SyncResult($R) {
     foreach ($n in @($R.added)) { Write-Host "  >> NOUVEAU POSTE inconnu sur le serveur : ID $(Format-RdId $n.id) (vu depuis $($n.ip))" -ForegroundColor Yellow }
     foreach ($n in @($R.received)) { Write-Host "  >> FICHE REÇUE : $($n.name) (ID $(Format-RdId $n.id)), code de contrôle $($n.code) : à valider" -ForegroundColor Yellow }
     foreach ($n in @($R.validated)) { Write-Host "  >> VALIDÉ depuis le téléphone : $($n.name) (ID $(Format-RdId $n.id))" -ForegroundColor Green }
+    foreach ($n in @($R.uninstalled)) { Write-Host "  >> DÉSINSTALLÉ à distance : $($n.name) (ID $(Format-RdId $n.id)) : retiré de la liste" -ForegroundColor Green }
+    foreach ($n in @($R.expiredOrders)) { Write-Host "  >> ORDRE PÉRIMÉ : $($n.name) (ID $(Format-RdId $n.id)) n'a pas exécuté la désinstallation en 30 jours (poste éteint ?)" -ForegroundColor Yellow }
 }
 
 # ---------------------------------------------------------------- Interface web locale
@@ -479,6 +703,8 @@ function Get-WebClients([bool]$IncludeHidden, [string[]]$NewIds) {
                 firstSeen = (Format-Local $_.firstSeen); status = $_.status; unknown = [bool]$_.unknown
                 hasPassword = [bool]$_.pwd; isNew = ($NewIds -contains $_.id)
                 code = [string](Get-Prop $_ 'code'); viaServer = [bool](Get-Prop $_ 'viaServer')
+                consent = (Get-ConsentSummary $_); hasConsent = [bool](Get-Prop $_ 'consent')
+                agent = [bool](Get-Prop $_ 'agent'); uninstallSince = $(if (Get-Prop $_ 'uninstallOrder') { Format-Local ([string](Get-Prop $_ 'uninstallOrder').sentAt) } else { '' })
                 incoming = $(if (Get-Prop $_ 'incoming') { [pscustomobject]@{ name = (Get-Prop $_ 'incoming').name; host = (Get-Prop $_ 'incoming').host; installed = (Get-Prop $_ 'incoming').installed } } else { $null })
             }
         })
@@ -525,7 +751,7 @@ function Handle-WebRequest($Ctx, [string]$WebToken, [string]$HostHeader) {
             return $false
         }
         'POST /api/quit' { Send-Json $Ctx @{ ok = $true; message = 'Au revoir.' }; return $true }
-        { $_ -in 'POST /api/connect', 'POST /api/copy', 'POST /api/validate', 'POST /api/rename', 'POST /api/hide', 'POST /api/forget', 'POST /api/delete' } {
+        { $_ -in 'POST /api/connect', 'POST /api/copy', 'POST /api/validate', 'POST /api/rename', 'POST /api/hide', 'POST /api/forget', 'POST /api/delete', 'POST /api/proof', 'POST /api/cancel-uninstall' } {
             $id = [string]$body.id
             if ($id -notmatch '^\d{6,12}$') { Send-Json $Ctx @{ ok = $false; error = 'ID invalide.' } 400; return $false }
             $rec = Find-Client $id
@@ -548,6 +774,16 @@ function Handle-WebRequest($Ctx, [string]$WebToken, [string]$HostHeader) {
                     Save-Store
                 }
                 '/api/forget'   { Forget-Client $rec; $msg = 'Client oublié : mot de passe effacé.' }
+                '/api/proof'    {
+                    try { $pp = Export-ConsentProof $rec } catch { Send-Json $Ctx @{ ok = $false; error = [string]$_.Exception.Message } 400; return $false }
+                    if (-not $DryRun) { Start-Process explorer.exe -ArgumentList ('/select,"' + $pp + '"') }
+                    $msg = "Preuve enregistrée : $pp"
+                }
+                '/api/cancel-uninstall' {
+                    $cr = Cancel-UninstallOrder $rec
+                    if (-not $cr.ok) { Send-Json $Ctx @{ ok = $false; error = [string]$cr.message } 502; return $false }
+                    $msg = [string]$cr.message
+                }
                 '/api/delete'   {
                     $res = Remove-Client $rec
                     if (-not $res.ok) { Send-Json $Ctx @{ ok = $false; error = [string]$res.message } 502; return $false }
@@ -609,6 +845,122 @@ function Start-WebUi {
 $script:Store = @(Read-Store)
 $script:ShowAll = $All.IsPresent
 
+# ---------------------------------------------------------------- Désinstaller RustDesk chez un client
+# Deux cas, selon le champ « agent » de la fiche du client :
+#  - avec la tâche de maintenance (postes installés avec une version récente de l'exe) : le bouton « Désinstaller » dépose un ordre SIGNÉ sur le serveur ;
+#    le poste le lit dans la demi-heure qui suit son allumage et se désinstalle seul, sans rien afficher ; le client disparaît ensuite de la liste tout
+#    seul (Receive-OrderResults). Rien à faire pour le client.
+#  - sans elle (anciens postes) : seule une session RustDesk permet d'agir. Le bouton prépare alors UNE commande autonome, la place dans le
+#    presse-papiers, ouvre la session et guide l'opération. La commande vérifie l'ID du poste avant de toucher à quoi que ce soit
+#    (Uninstall-RustDeskFully -ExpectedId, dans Deploy-RustDesk.ps1).
+function Get-UninstallScript($Rec, [switch]$DryRun) {
+    $id = [string]$Rec.id
+    if ($id -notmatch '^\d{6,12}$') { throw 'ID de client invalide.' }
+    $deploy = Join-Path $PSScriptRoot 'Deploy-RustDesk.ps1'
+    $tok = $null; $err = $null
+    $ast = [Management.Automation.Language.Parser]::ParseFile($deploy, [ref]$tok, [ref]$err)
+    $fn = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Uninstall-RustDeskFully' }, $true)
+    if (-not $fn) { throw 'Fonction de désinstallation introuvable dans Deploy-RustDesk.ps1.' }
+    $call = "Uninstall-RustDeskFully -ExpectedId '$id'" + $(if ($DryRun) { ' -DryRun' } else { ' -NoticeSeconds 10' }) + ' | Out-Null'
+    $fn.Extent.Text + "`r`n" + $call + "`r`n"
+}
+
+# Commande courte à coller dans un PowerShell ADMINISTRATEUR du client : le script (compressé, en base64) est décompressé puis exécuté sur place
+function New-UninstallCommand($Rec, [switch]$DryRun) {
+    $script = Get-UninstallScript $Rec -DryRun:$DryRun
+    $ms = New-Object IO.MemoryStream
+    $gz = New-Object IO.Compression.GzipStream($ms, [IO.Compression.CompressionMode]::Compress)
+    $bytes = [Text.Encoding]::UTF8.GetBytes($script)
+    $gz.Write($bytes, 0, $bytes.Length); $gz.Close()
+    $b64 = [Convert]::ToBase64String($ms.ToArray())
+    "iex ([IO.StreamReader]::new([IO.Compression.GzipStream]::new([IO.MemoryStream]::new([Convert]::FromBase64String('$b64')),[IO.Compression.CompressionMode]::Decompress),[Text.Encoding]::UTF8).ReadToEnd())"
+}
+
+# Confirmation par saisie : « Continuer » ne s'active que lorsque le texte saisi est EXACTEMENT celui attendu (le nom du client)
+function Show-TypedConfirm($Owner, [string]$Title, [string]$Message, [string]$Expected, [scriptblock]$OnShown = $null) {
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+    $state = @{ ok = $false }
+    $f = New-Object System.Windows.Forms.Form
+    $f.Text = $Title
+    $f.ClientSize = New-Object System.Drawing.Size(540, 340)
+    $f.StartPosition = $(if ($Owner) { 'CenterParent' } else { 'CenterScreen' })
+    $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.TopMost = $true
+    $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+
+    $msg = New-Object System.Windows.Forms.Label
+    $msg.Text = $Message; $msg.UseMnemonic = $false
+    $msg.Location = New-Object System.Drawing.Point(16, 14); $msg.Size = New-Object System.Drawing.Size(508, 190)
+    $ask = New-Object System.Windows.Forms.Label
+    $ask.Text = 'Pour confirmer, tapez exactement le nom du client :'
+    $ask.Location = New-Object System.Drawing.Point(16, 212); $ask.Size = New-Object System.Drawing.Size(508, 22)
+    $exp = New-Object System.Windows.Forms.Label
+    $exp.Text = $Expected; $exp.UseMnemonic = $false; $exp.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+    $exp.Location = New-Object System.Drawing.Point(16, 236); $exp.Size = New-Object System.Drawing.Size(508, 22)
+    $tb = New-Object System.Windows.Forms.TextBox
+    $tb.Location = New-Object System.Drawing.Point(16, 262); $tb.Size = New-Object System.Drawing.Size(508, 28)
+    $go = New-Object System.Windows.Forms.Button
+    $go.Text = 'Continuer'; $go.Enabled = $false; $go.ForeColor = [System.Drawing.Color]::FromArgb(179, 38, 30)
+    $go.Location = New-Object System.Drawing.Point(16, 296); $go.Size = New-Object System.Drawing.Size(150, 36)
+    $no = New-Object System.Windows.Forms.Button
+    $no.Text = 'Annuler'; $no.Location = New-Object System.Drawing.Point(174, 296); $no.Size = New-Object System.Drawing.Size(110, 36)
+    $f.Controls.AddRange(@($msg, $ask, $exp, $tb, $go, $no))
+    $f.CancelButton = $no
+    $tb.Add_TextChanged({ $go.Enabled = ($tb.Text.Trim().Length -gt 0 -and $tb.Text.Trim() -ieq $Expected.Trim()) })
+    $go.Add_Click({ $state.ok = $true; $f.Close() })
+    $no.Add_Click({ $f.Close() })
+    $f.Add_Shown({
+        $f.Activate(); $tb.Focus() | Out-Null
+        if ($OnShown) { & $OnShown $f @{ text = $tb; ok = $go; cancel = $no } }
+    })
+    if ($Owner) { [void]$f.ShowDialog($Owner) } else { [void]$f.ShowDialog() }
+    $f.Dispose()
+    [bool]$state.ok
+}
+
+# Guide de l'opération pendant que la session RustDesk est ouverte. Renvoie 'remove' (« c'est terminé : retirer le client de la liste ») ou 'later'.
+function Show-UninstallSteps($Owner, $Rec, [string]$Command, [scriptblock]$OnShown = $null) {
+    Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+    $state = @{ result = 'later' }
+    $f = New-Object System.Windows.Forms.Form
+    $f.Text = "Désinstaller RustDesk chez $($Rec.name)"
+    $f.ClientSize = New-Object System.Drawing.Size(620, 470)
+    $f.StartPosition = $(if ($Owner) { 'CenterParent' } else { 'CenterScreen' })
+    $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $false
+    $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
+
+    $text = New-Object System.Windows.Forms.Label
+    $text.Text = "RustDesk s'ouvre sur « $($Rec.name) » (ID $(Format-RdId $Rec.id)). La commande de désinstallation est dans le presse-papiers.`n`n" +
+        "Dans la session RustDesk :`n" +
+        "  1. Clic droit sur le bouton Démarrer, puis « Windows PowerShell (administrateur) » (ou « Terminal (administrateur) »). Acceptez la demande de l'écran si elle apparaît.`n" +
+        "  2. Collez la commande (clic droit dans la fenêtre, ou Ctrl+V), puis Entrée.`n" +
+        "  3. La session RustDesk se coupe au bout de 10 secondes : c'est normal, la désinstallation continue sur le poste (le résultat reste noté dans C:\ProgramData\Pg20-Info chez le client). Si un message d'arrêt s'affiche avant (droits, mauvais poste), rien n'a été modifié.`n`n" +
+        "La commande vérifie l'ID du poste ($($Rec.id)) avant de toucher à quoi que ce soit : sur un autre poste, elle ne fait rien.`n`n" +
+        "Pour vérifier, quelques minutes plus tard : une connexion à ce poste doit échouer.`n`n" +
+        "Quand c'est fait, retirez le client de la liste (ce PC, la clé USB et le serveur) avec le bouton du bas. Pas avant : si RustDesk reste installé chez le client, il se réenregistre et revient « À valider »."
+    $text.UseMnemonic = $false
+    $text.Location = New-Object System.Drawing.Point(16, 14); $text.Size = New-Object System.Drawing.Size(588, 360)
+
+    $copy = New-Object System.Windows.Forms.Button
+    $copy.Text = 'Copier la commande à nouveau'; $copy.Location = New-Object System.Drawing.Point(16, 384); $copy.Size = New-Object System.Drawing.Size(240, 36)
+    $done = New-Object System.Windows.Forms.Button
+    $done.Text = "C'est terminé : retirer le client de la liste…"; $done.ForeColor = [System.Drawing.Color]::FromArgb(179, 38, 30)
+    $done.Location = New-Object System.Drawing.Point(16, 426); $done.Size = New-Object System.Drawing.Size(380, 36)
+    $later = New-Object System.Windows.Forms.Button
+    $later.Text = 'Plus tard'; $later.Location = New-Object System.Drawing.Point(404, 426); $later.Size = New-Object System.Drawing.Size(200, 36)
+    $f.Controls.AddRange(@($text, $copy, $done, $later))
+    $f.CancelButton = $later
+    $copy.Add_Click({ Set-Clipboard -Value $Command; $copy.Text = 'Commande copiée' })
+    $done.Add_Click({ $state.result = 'remove'; $f.Close() })
+    $later.Add_Click({ $f.Close() })
+    $f.Add_Shown({
+        $f.Activate()
+        if ($OnShown) { & $OnShown $f @{ copy = $copy; done = $done; later = $later } }
+    })
+    if ($Owner) { [void]$f.ShowDialog($Owner) } else { [void]$f.ShowDialog() }
+    $f.Dispose()
+    [string]$state.result
+}
+
 # Petite fenêtre « Se connecter à un client » : liste des clients VALIDÉS, recherche au clavier, Entrée ou double-clic ouvre RustDesk
 # avec l'ID et le mot de passe déjà remplis. Les fiches « à valider » ne s'y trouvent pas (elles se traitent dans la page ou sur le téléphone).
 function Show-QuickPicker {
@@ -619,38 +971,42 @@ function Show-QuickPicker {
 
     $f = New-Object System.Windows.Forms.Form
     $f.Text = 'Pg20 Info : se connecter à un client'
-    $f.ClientSize = New-Object System.Drawing.Size(540, 450)
+    $f.ClientSize = New-Object System.Drawing.Size(620, 450)
     $f.StartPosition = 'CenterScreen'; $f.TopMost = $true; $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $false
     $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
 
     $hint = New-Object System.Windows.Forms.Label
     $hint.Text = 'Tapez pour chercher, puis Entrée ou double-clic pour vous connecter.'
-    $hint.Location = New-Object System.Drawing.Point(14, 12); $hint.Size = New-Object System.Drawing.Size(512, 22)
+    $hint.Location = New-Object System.Drawing.Point(14, 12); $hint.Size = New-Object System.Drawing.Size(592, 22)
     $tb = New-Object System.Windows.Forms.TextBox
-    $tb.Location = New-Object System.Drawing.Point(14, 40); $tb.Size = New-Object System.Drawing.Size(512, 28)
+    $tb.Location = New-Object System.Drawing.Point(14, 40); $tb.Size = New-Object System.Drawing.Size(592, 28)
 
     $lv = New-Object System.Windows.Forms.ListView
     $lv.View = 'Details'; $lv.FullRowSelect = $true; $lv.HideSelection = $false; $lv.MultiSelect = $false; $lv.GridLines = $false
-    $lv.Location = New-Object System.Drawing.Point(14, 76); $lv.Size = New-Object System.Drawing.Size(512, 258)
-    [void]$lv.Columns.Add('Client', 270); [void]$lv.Columns.Add('ID', 110); [void]$lv.Columns.Add('Poste', 110)
+    $lv.Location = New-Object System.Drawing.Point(14, 76); $lv.Size = New-Object System.Drawing.Size(592, 258)
+    [void]$lv.Columns.Add('Client', 330); [void]$lv.Columns.Add('ID', 110); [void]$lv.Columns.Add('Poste', 130)
 
     $note = New-Object System.Windows.Forms.Label
-    $note.Location = New-Object System.Drawing.Point(14, 340); $note.Size = New-Object System.Drawing.Size(512, 54)      # 3 lignes : le message de suppression est long
+    $note.Location = New-Object System.Drawing.Point(14, 340); $note.Size = New-Object System.Drawing.Size(592, 54)      # 3 lignes : le message de suppression est long
+    $note.UseMnemonic = $false
     $note.ForeColor = [System.Drawing.Color]::FromArgb(138, 82, 0)
     $note.Text = $(if ($pending) { "$pending fiche(s) à valider : ouvrez la page complète ou validez depuis le téléphone." } elseif (-not $script:QuickAll.Count) { 'Aucun client validé pour le moment.' } else { '' })
 
     $go = New-Object System.Windows.Forms.Button
     $go.Text = 'Se connecter'; $go.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
-    $go.Location = New-Object System.Drawing.Point(14, 396); $go.Size = New-Object System.Drawing.Size(150, 40)
+    $go.Location = New-Object System.Drawing.Point(14, 396); $go.Size = New-Object System.Drawing.Size(140, 40)
+    $unin = New-Object System.Windows.Forms.Button
+    $unin.Text = 'Désinstaller…'; $unin.ForeColor = [System.Drawing.Color]::FromArgb(138, 82, 0)
+    $unin.Location = New-Object System.Drawing.Point(162, 396); $unin.Size = New-Object System.Drawing.Size(120, 40)
     $del = New-Object System.Windows.Forms.Button
     $del.Text = 'Supprimer…'; $del.ForeColor = [System.Drawing.Color]::FromArgb(179, 38, 30)
-    $del.Location = New-Object System.Drawing.Point(172, 396); $del.Size = New-Object System.Drawing.Size(110, 40)
+    $del.Location = New-Object System.Drawing.Point(290, 396); $del.Size = New-Object System.Drawing.Size(100, 40)
     $page = New-Object System.Windows.Forms.Button
-    $page.Text = 'Page complète…'; $page.Location = New-Object System.Drawing.Point(290, 396); $page.Size = New-Object System.Drawing.Size(130, 40)
+    $page.Text = 'Page complète…'; $page.Location = New-Object System.Drawing.Point(398, 396); $page.Size = New-Object System.Drawing.Size(130, 40)
     $close = New-Object System.Windows.Forms.Button
-    $close.Text = 'Fermer'; $close.Location = New-Object System.Drawing.Point(428, 396); $close.Size = New-Object System.Drawing.Size(98, 40)
+    $close.Text = 'Fermer'; $close.Location = New-Object System.Drawing.Point(536, 396); $close.Size = New-Object System.Drawing.Size(70, 40)
     $f.AcceptButton = $go; $f.CancelButton = $close
-    $f.Controls.AddRange(@($hint, $tb, $lv, $note, $go, $del, $page, $close))
+    $f.Controls.AddRange(@($hint, $tb, $lv, $note, $go, $unin, $del, $page, $close))
 
     $fill = {
         $q = ($tb.Text -replace '\s', '').ToLower()
@@ -658,7 +1014,7 @@ function Show-QuickPicker {
         foreach ($c in $script:QuickAll) {
             $hay = ($c.name + $c.id + $c.host) -replace '\s', ''
             if ($q -and $hay.ToLower().IndexOf($q) -lt 0) { continue }
-            $it = New-Object System.Windows.Forms.ListViewItem([string]$c.name)
+            $it = New-Object System.Windows.Forms.ListViewItem(([string]$c.name) + $(if (Get-Prop $c 'uninstallOrder') { '  (désinstallation demandée)' } else { '' }))
             [void]$it.SubItems.Add((Format-RdId $c.id)); [void]$it.SubItems.Add([string]$c.host)
             $it.Tag = $c
             [void]$lv.Items.Add($it)
@@ -674,7 +1030,7 @@ function Show-QuickPicker {
         if (-not $lv.SelectedItems.Count) { return }
         $rec = $lv.SelectedItems[0].Tag
         if (-not $AutoDelete) {
-            $q = "Supprimer « $($rec.name) » (ID $(Format-RdId $rec.id)) ?`n`nIl sera retiré de ce PC (mot de passe effacé), de la clé USB si elle est branchée, et du serveur.`nSi RustDesk est encore installé chez le client, il se réenregistrera et réapparaîtra « À valider ».`n`nAction définitive."
+            $q = "Supprimer « $($rec.name) » (ID $(Format-RdId $rec.id)) ?`n`nIl sera retiré de ce PC (mot de passe effacé), de la clé USB si elle est branchée, et du serveur.`nSi RustDesk est encore installé chez le client, il se réenregistrera et réapparaîtra « À valider ».`n`nLes preuves d'acceptation déjà exportées (Documents\Pg20-Info-Preuves) sont conservées.`n`nAction définitive."
             if ([System.Windows.Forms.MessageBox]::Show($f, $q, 'Supprimer le client', 'YesNo', 'Warning', 'Button2') -ne 'Yes') { return }
         }
         $res = Use-Store { Remove-Client $rec }
@@ -687,6 +1043,61 @@ function Show-QuickPicker {
         else { Write-Host ("ECHEC suppression : " + $res.message) }
     }
     $del.Add_Click($remove)
+    # Désinstaller RustDesk chez le client. Trois cas :
+    #  - une désinstallation est déjà demandée : on propose de l'ANNULER ;
+    #  - le poste a la tâche de maintenance : confirmation par saisie du nom, puis ordre signé déposé sur le serveur (le poste se désinstalle seul,
+    #    le client disparaît tout seul de la liste) ;
+    #  - sinon (ancien poste) : confirmation par saisie du nom, commande prête dans le presse-papiers, session ouverte, guide, puis retrait du client.
+    $uninstall = {
+        if (-not $lv.SelectedItems.Count) { return }
+        $rec = $lv.SelectedItems[0].Tag
+        $okColor = [System.Drawing.Color]::FromArgb(14, 122, 84)
+        $pend = Get-Prop $rec 'uninstallOrder'
+        if ($pend) {
+            $q = "Une désinstallation de « $($rec.name) » est déjà demandée (le $(Format-Local ([string]$pend.sentAt))).`n`nLe poste l'exécutera seul dès qu'il sera allumé et connecté à internet, puis disparaîtra de la liste.`n`nAnnuler cette demande ?"
+            if ($AutoUninstall -or [System.Windows.Forms.MessageBox]::Show($f, $q, 'Désinstallation déjà demandée', 'YesNo', 'Question', 'Button2') -eq 'Yes') {
+                $cr = Use-Store { $r = Find-Client $rec.id; if ($r) { Cancel-UninstallOrder $r } else { [pscustomobject]@{ ok = $false; message = 'Client introuvable.' } } }
+                if ($cr.ok) { Clear-Props $rec @('uninstallOrder'); $note.ForeColor = $okColor; $note.Text = $cr.message; & $fill }
+                elseif (-not $AutoUninstall) { [void][System.Windows.Forms.MessageBox]::Show($f, [string]$cr.message, 'Annulation impossible', 'OK', 'Error') }
+                else { Write-Host ("ECHEC annulation : " + $cr.message) }
+            }
+            return
+        }
+        if (Get-Prop $rec 'agent') {
+            $q = "Désinstaller RustDesk chez « $($rec.name) » (ID $(Format-RdId $rec.id)) ?`n`n" +
+                 "• Vous ne pourrez plus vous connecter à ce poste.`n" +
+                 "• Il se désinstallera tout seul dans les 30 minutes qui suivent son allumage, sans rien afficher : le client n'a rien à faire.`n" +
+                 "• Il sera ensuite retiré de cette liste automatiquement.`n" +
+                 "• Annulable tant que le poste n'a pas exécuté l'ordre."
+            if (-not $AutoUninstall -and -not (Show-TypedConfirm $f 'Désinstaller RustDesk chez ce client' $q ([string]$rec.name))) { return }
+            $sr = Use-Store { $r = Find-Client $rec.id; if ($r) { Send-UninstallOrder $r } else { [pscustomobject]@{ ok = $false; message = 'Client introuvable.'; order = $null } } }
+            if ($sr.ok) {
+                Set-Prop $rec 'uninstallOrder' $sr.order
+                $note.ForeColor = $okColor
+                $note.Text = "Ordre envoyé : $($rec.name) se désinstallera seul dans les 30 minutes qui suivent son allumage, puis disparaîtra de la liste."
+                & $fill
+                if (-not $AutoUninstall) {
+                    [void][System.Windows.Forms.MessageBox]::Show($f, "Ordre envoyé.`n`n« $($rec.name) » se désinstallera tout seul dans les 30 minutes qui suivent son allumage (connecté à internet). Vous n'avez rien d'autre à faire : il sera retiré de la liste automatiquement (laissez la surveillance Pg20 active, ou ouvrez la page de temps en temps).`n`nVous pouvez annuler avec ce même bouton tant que ce n'est pas fait.", 'Désinstallation demandée', 'OK', 'Information')
+                }
+            }
+            elseif (-not $AutoUninstall) { [void][System.Windows.Forms.MessageBox]::Show($f, [string]$sr.message, 'Ordre non envoyé', 'OK', 'Error') }
+            else { Write-Host ("ECHEC ordre : " + $sr.message) }
+            return
+        }
+        if ($AutoUninstall) { Write-Host 'MANUEL : ce poste n''a pas la tâche de maintenance.'; return }
+        $q = "Désinstaller RustDesk chez « $($rec.name) » (ID $(Format-RdId $rec.id)) ?`n`n" +
+             "• Vous ne pourrez plus vous connecter à ce poste.`n" +
+             "• RustDesk, sa configuration et son identité seront effacés chez le client.`n" +
+             "• Ce poste n'a pas la tâche de maintenance (installation plus ancienne) : cela se fait dans une session RustDesk ouverte sur ce poste, avec une commande que je prépare pour vous.`n`n" +
+             "Cette opération ne se défait pas."
+        if (-not (Show-TypedConfirm $f 'Désinstaller RustDesk chez ce client' $q ([string]$rec.name))) { return }
+        $cmd = New-UninstallCommand $rec
+        Set-Clipboard -Value $cmd
+        $f.TopMost = $false                    # la fenêtre RustDesk qui s'ouvre ne doit pas être masquée par celle-ci
+        Open-Client $rec
+        if ((Show-UninstallSteps $f $rec $cmd) -eq 'remove') { & $remove }
+    }
+    $unin.Add_Click($uninstall)
     $tb.Add_TextChanged($fill)
     $tb.Add_KeyDown({ param($s, $e)
         if ($e.KeyCode -eq 'Down' -and $lv.Items.Count) { $i = [Math]::Min(($(if ($lv.SelectedItems.Count) { $lv.SelectedItems[0].Index } else { -1 })) + 1, $lv.Items.Count - 1); $lv.Items[$i].Selected = $true; $lv.EnsureVisible($i); $e.Handled = $true }
@@ -706,7 +1117,7 @@ function Show-QuickPicker {
                 $bmp = New-Object System.Drawing.Bitmap($f.Width, $f.Height)
                 $f.DrawToBitmap($bmp, (New-Object System.Drawing.Rectangle(0, 0, $f.Width, $f.Height))); $bmp.Save($ShotPath); $bmp.Dispose()
             }
-            if ($AutoDelete) { & $remove } else { $go.PerformClick() }
+            if ($AutoDelete) { & $remove } elseif ($AutoUninstall) { & $uninstall } else { $go.PerformClick() }
             if (-not $f.IsDisposed) { $f.Close() }
         }
     })
@@ -744,6 +1155,11 @@ if ($Watch) {
                     Show-Balloon 'Pg20 Info : fiche reçue' ("$($n.name) vient de s'installer (code de contrôle $($n.code)). Validez depuis le téléphone ou ouvrez Pg20-Clients.")
                 }
                 foreach ($n in @($r.validated)) { Write-Watch ("VALIDÉ depuis le téléphone : {0} (ID {1})" -f $n.name, (Format-RdId $n.id)) 'Green' }
+                foreach ($n in @($r.uninstalled)) {
+                    Write-Watch ("DÉSINSTALLÉ à distance : {0} (ID {1}), retiré de la liste" -f $n.name, (Format-RdId $n.id)) 'Green'
+                    Show-Balloon 'Pg20 Info : désinstallation terminée' ("$($n.name) s'est désinstallé tout seul : le client a été retiré de la liste.")
+                }
+                foreach ($n in @($r.expiredOrders)) { Write-Watch ("ORDRE PÉRIMÉ : {0} (ID {1}) n'a pas exécuté la désinstallation en 30 jours" -f $n.name, (Format-RdId $n.id)) 'Yellow' }
                 if ($r.rejected) { Write-Watch "$($r.rejected) fiche(s) écartée(s) : illisible(s) ou fabriquée(s), effacée(s) du serveur." 'Red' }
                 # Un problème (serveur injoignable...) n'est consigné qu'une fois, puis quand il disparaît : pas de répétition toutes les 20 s
                 $problem = if ($r.ok) { '' } else { [string]$r.message }

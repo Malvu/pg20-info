@@ -3,6 +3,8 @@
 
 POST /v1/record   {"v":1, "id":"<ID RustDesk>", "label":"<nom affiché>", "blob":"<fiche chiffrée, base64>"}
 POST /v1/wait     {"v":1, "follow":"<numéro de suivi>"} : attend (20 s au plus) que le technicien valide la fiche : {"ok": true, "validated": true|false}
+GET  /v1/order?id=<ID>  l'ordre de désinstallation SIGNÉ qui attend ce poste (404 s'il n'y en a pas) ; le poste en vérifie la signature
+POST /v1/order-done {"v":1,"id":"...","nonce":"..."} : le poste signale avoir exécuté l'ordre (n'efface rien)
 GET  /v1/ping     {"ok": true}
 
 Une fiche n'est acceptée que si :
@@ -31,6 +33,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 
 BIND = os.environ.get("PG20_INBOX_BIND", "0.0.0.0")
 PORT = int(os.environ.get("PG20_INBOX_PORT", "21120"))
@@ -53,6 +56,9 @@ B64_RE = re.compile(r"^[A-Za-z0-9+/]+={0,2}$")
 KEYS_OK = {"v", "id", "label", "blob"}
 WAIT_KEYS = {"v", "follow"}
 FOLLOW_RE = re.compile(r"^[0-9a-f]{32}$")
+NONCE_RE = re.compile(r"^[0-9a-f]{32}$")
+ORDERS = os.path.join(SPOOL, "orders")                            # ordres de désinstallation signés (déposés par le flux) et accusés des postes
+ORDER_MAX_AGE = 31 * 86400
 
 
 def log(msg):
@@ -110,6 +116,8 @@ WAIT_LIMITER = Limiter(per_ip=int(os.environ.get("PG20_INBOX_WAIT_RATE_IP", "40"
 WAITERS = threading.BoundedSemaphore(MAX_WAITERS)
 WAIT_IPS = collections.Counter()
 WAIT_LOCK = threading.Lock()
+# Les postes interrogent toutes les 30 min : 60 requêtes par 10 min et par adresse laissent la place à un bureau entier derrière une même box
+ORDER_LIMITER = Limiter(per_ip=int(os.environ.get("PG20_INBOX_ORDER_RATE_IP", "60")), per_ip_window=600, total=3000, total_window=3600)
 
 
 def registration_state(pid, ip):
@@ -184,6 +192,39 @@ def release_wait(ip):
         WAITERS.release()
 
 
+def read_order(pid):
+    """Ordre de désinstallation en attente pour cet ID (déposé par le flux, SIGNÉ par le technicien), ou None : aucun, périmé, ou déjà signalé
+    comme exécuté. Ce service ne vérifie pas la signature (il n'a pas la clé) : c'est le poste qui la vérifie."""
+    path = os.path.join(ORDERS, pid + ".json")
+    try:
+        if os.path.getsize(path) > 2048:
+            return None
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        order, sig = data["order"], data["sig"]
+        if not (isinstance(order, dict) and isinstance(sig, str) and order.get("id") == pid
+                and isinstance(order.get("nonce"), str) and NONCE_RE.match(order["nonce"])):
+            return None
+        if parse_utc(order["exp"]) < utc_now():
+            return None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if os.path.exists(os.path.join(ORDERS, pid + ".done.json")):
+        return None
+    return {"order": order, "sig": sig}
+
+
+def purge_orders(now):
+    """Ordres et accusés plus vieux que 31 jours (un ordre dure 30 jours) : effacés."""
+    if not os.path.isdir(ORDERS):
+        return
+    for n in os.listdir(ORDERS):
+        p = os.path.join(ORDERS, n)
+        if os.path.isfile(p) and now - os.path.getmtime(p) > ORDER_MAX_AGE:
+            os.unlink(p)
+            log("purge: ordre %s (plus de 31 jours)" % n)
+
+
 def purge_loop():
     while True:
         try:
@@ -199,6 +240,7 @@ def purge_loop():
                     p = os.path.join(TRACK, n)
                     if os.path.isfile(p) and now - os.path.getmtime(p) > TRACK_TTL:
                         os.unlink(p)
+            purge_orders(now)
         except OSError as e:
             log("purge: %s" % e)
         time.sleep(600)
@@ -231,6 +273,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_GET(self):
         ip = self.client_address[0]
+        if self.path.startswith("/v1/order?"):
+            return self._order(ip, self.path.split("?", 1)[1])
         if self.path == "/v1/ping" and LIMITER.allow(ip):
             return self._send(200, {"ok": True})
         return self._send(404 if self.path != "/v1/ping" else 429, {"ok": False})
@@ -277,10 +321,63 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except OSError:
             pass
 
+    def _order(self, ip, query):
+        """GET /v1/order?id=<ID> : l'ordre de désinstallation signé qui attend ce poste, s'il y en a un. Réponse publique par nature (l'ordre est
+        signé, il ne contient aucun secret) ; seul le poste visé, qui vérifie la signature et son ID, peut en faire quelque chose."""
+        if not ORDER_LIMITER.allow(ip):
+            return self._send(429, {"ok": False, "error": "rate"})
+        try:
+            q = urllib.parse.parse_qs(query, max_num_fields=4)
+        except ValueError:
+            return self._send(400, {"ok": False})
+        ids = q.get("id", [])
+        if len(ids) != 1 or not ID_RE.match(ids[0]):
+            return self._send(400, {"ok": False})
+        o = read_order(ids[0])
+        if not o:
+            return self._send(404, {"ok": False})
+        return self._send(200, {"ok": True, "order": o["order"], "sig": o["sig"]})
+
+    def _order_done(self, ip):
+        """POST /v1/order-done {"v":1,"id":"...","nonce":"..."} : le poste signale avoir exécuté l'ordre. Écrit un accusé que le flux relaie au technicien.
+        N'efface RIEN : un faux accusé ne peut donc jamais annuler un ordre, il ne fait qu'avancer l'affichage du technicien."""
+        if not ORDER_LIMITER.allow(ip):
+            return self._send(429, {"ok": False, "error": "rate"})
+        try:
+            length = int(self.headers.get("Content-Length", ""))
+        except ValueError:
+            return self._send(411, {"ok": False})
+        if length <= 0 or length > 256:
+            return self._send(413, {"ok": False})
+        try:
+            data = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError, OSError):
+            return self._send(400, {"ok": False})
+        if not (isinstance(data, dict) and set(data) == {"v", "id", "nonce"} and data["v"] == 1
+                and isinstance(data["id"], str) and ID_RE.match(data["id"])
+                and isinstance(data["nonce"], str) and NONCE_RE.match(data["nonce"])):
+            return self._send(400, {"ok": False})
+        o = read_order(data["id"])
+        if not o or o["order"]["nonce"] != data["nonce"]:
+            return self._send(404, {"ok": False})
+        try:
+            fd, tmp = tempfile.mkstemp(dir=ORDERS, prefix=".dn-")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump({"nonce": data["nonce"], "at": utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")}, f)
+            os.chmod(tmp, 0o660)
+            os.replace(tmp, os.path.join(ORDERS, data["id"] + ".done.json"))
+        except OSError as e:
+            log("accusé non écrit: %s" % e)
+            return self._send(500, {"ok": False})
+        log("désinstallation signalée par le poste: id=%s depuis %s" % (data["id"], ip))
+        return self._send(200, {"ok": True})
+
     def do_POST(self):
         ip = self.client_address[0]
         if self.path == "/v1/wait":
             return self._wait(ip)
+        if self.path == "/v1/order-done":
+            return self._order_done(ip)
         if self.path != "/v1/record":
             return self._send(404, {"ok": False})
         if not LIMITER.allow(ip):
@@ -375,6 +472,7 @@ CONTEXT = make_context()
 if __name__ == "__main__":
     os.makedirs(SPOOL, mode=0o770, exist_ok=True)
     os.makedirs(TRACK, mode=0o770, exist_ok=True)
+    os.makedirs(ORDERS, mode=0o770, exist_ok=True)
     threading.Thread(target=purge_loop, daemon=True).start()
     log("pg20-inbox : écoute sur %s:%d (TLS)" % (BIND, PORT))
     Server((BIND, PORT), Handler).serve_forever()

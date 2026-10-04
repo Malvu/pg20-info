@@ -45,6 +45,8 @@ param(
     [string]$TechnicianPublicKey,   # fichier technician.pub.xml (Setup-Technician.ps1) : les mots de passe des clients sont chiffrés avec cette clé
     [string]$InboxUrl,        # réception des fiches sur votre serveur : hôte[:port] ; par défaut <Server>:21120 quand -InboxPin est donné
     [string]$InboxPin,        # empreinte SHA-256 (64 hex) du certificat TLS du serveur (affichée par install-inbox.sh) : l'exe n'envoie qu'à ce certificat
+    [string]$TermsFile,       # texte des conditions d'installation (UTF-8, ligne « Version : ... ») : l'exe exige leur acceptation et en garde la preuve
+    [switch]$NoAgent,         # n'embarque pas la tâche de maintenance (désinstallation à distance sur ordre signé) : sans elle, la désinstallation se fait à la main
     [switch]$NoElevate        # pour tester la compilation sans droits admin
 )
 
@@ -61,6 +63,7 @@ if ($Server -and $ConfigString) { throw 'Utilisez -ConfigString OU -Server/-Key,
 if ($Bundle -and $InstallerFile) { throw 'Utilisez -Bundle (téléchargement) OU -InstallerFile (fichier local), pas les deux.' }
 if ($Version -and -not $Bundle) { throw '-Version s''utilise avec -Bundle.' }
 if ($InstallerFile -and -not (Test-Path $InstallerFile)) { throw "Installeur introuvable : $InstallerFile" }
+if ($TermsFile -and -not (Test-Path -LiteralPath $TermsFile)) { throw "Texte des conditions introuvable : $TermsFile" }
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
@@ -144,6 +147,26 @@ try {
         "/resource:$defaultsFile,defaults.txt"
     )
     if ($InstallerFile) { $cscArgs += "/resource:$InstallerFile,rustdesk-setup.exe" }
+    if ($TermsFile) {
+        $termsText = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $TermsFile).Path, [Text.Encoding]::UTF8) -replace "`r`n", "`n"
+        if (-not $termsText.Trim()) { throw 'Le texte des conditions est vide.' }
+        if ($termsText -match '\[(NOM|ADRESSE|E-MAIL|TÉLÉPHONE|TELEPHONE|DURÉE|DUREE|DÉLAI|DELAI|À ADAPTER|A ADAPTER|NAME|ADDRESS|EMAIL|PHONE|RETENTION|DELAY|TO ADAPT)[^\]]*\]') { throw 'Le texte des conditions contient encore des champs à remplir entre crochets ([NOM...], [ADRESSE...]) : complétez-le avant de construire l''exe.' }
+        $termsSha = ([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash([Text.Encoding]::UTF8.GetBytes($termsText))) -replace '-', '').ToLower()
+        $termsVer = if ($termsText -match '(?im)^\s*version\s*:\s*(?<v>[^\n]{1,40})$') { $Matches['v'].Trim() } else { '(sans version)' }
+        $cscArgs += "/resource:$((Resolve-Path -LiteralPath $TermsFile).Path),terms.txt"
+    }
+
+    # Tâche de maintenance : embarquée dès que l'exe sait où lire les ordres (serveur + empreinte) et comment les vérifier (clé publique). Elle exige un
+    # texte de conditions qui la décrit (« tâche de maintenance ») : on ne place jamais sur un poste un composant que le client n'a pas pu lire.
+    if (-not $NoAgent -and $InboxPin -and $techKeyXml) {
+        $agentFile = Join-Path $scriptDir 'Pg20-Agent.ps1'
+        if (-not (Test-Path -LiteralPath $agentFile)) { throw "Pg20-Agent.ps1 introuvable à côté de ce script : $agentFile (ou utilisez -NoAgent)" }
+        if (-not ([IO.File]::ReadAllText($agentFile, [Text.Encoding]::UTF8)).Contains('# __UNINSTALL_FUNCTION__')) { throw 'Pg20-Agent.ps1 : marqueur « # __UNINSTALL_FUNCTION__ » introuvable.' }
+        if (-not $TermsFile) { throw 'La tâche de maintenance exige un texte de conditions qui la décrit : ajoutez -TermsFile (ou -NoAgent pour un exe sans elle).' }
+        if ($termsText -notmatch '(?i)(t[âa]che de maintenance|maintenance task)') { throw 'Le texte des conditions ne décrit pas la « tâche de maintenance » (point 2) : complétez-le (version « c » du texte) ou utilisez -NoAgent.' }
+        $cscArgs += "/resource:$agentFile,Pg20-Agent.ps1"
+        $agentEmbedded = $true
+    }
     $cscArgs += $program
     $cscOut = & $csc @cscArgs 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) { throw "Échec de la compilation (code $LASTEXITCODE).`n$cscOut" }
@@ -158,4 +181,8 @@ Write-Host "[+] $($f.FullName) ($size)" -ForegroundColor Green
 if ($bundledName) { Write-Host "    Installeur embarqué : $bundledName (version $bundledVer, signé : $bundledSigner) -> aucun téléchargement chez le client" }
 else              { Write-Host '    Pas d''installeur embarqué : l''exe téléchargera RustDesk depuis GitHub chez le client.' }
 if ($defaults.Count) { Write-Host "    Paramètres figés : $(($defaults | Where-Object { $_ -like '-*' }) -join ' ')" }
+if ($termsSha) { Write-Host "    Conditions d'installation : version $termsVer, empreinte SHA-256 $termsSha -> l'exe exigera leur acceptation (gardez ce texte : il sert à retrouver ce qui a été accepté)" }
+else { Write-Host '    AUCUN texte de conditions (-TermsFile) : l''exe s''installera sans demander d''acceptation.' -ForegroundColor Yellow }
+if ($agentEmbedded) { Write-Host '    Tâche de maintenance : intégrée (désinstallation à distance, uniquement sur ordre signé du technicien ; le poste doit avoir accepté les conditions qui la décrivent)' }
+else { Write-Host '    Pas de tâche de maintenance : ces postes se désinstalleront à la main (bouton « Désinstaller… » : commande guidée).' }
 Write-Host '    Non signé : SmartScreen affichera "éditeur inconnu" tant que l''exe n''est pas signé avec un certificat de signature de code.'
