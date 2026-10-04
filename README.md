@@ -49,6 +49,6 @@ Ne décrivez pas une faille dans une issue publique. Utilisez le signalement pri
 
 ## Licence
 
-Voir le fichier `LICENSE`.
+Voir le fichier `LICENSE` (licence MIT, en anglais : c'est lui qui fait foi). Une traduction française de courtoisie est dans [`LICENSE.fr.txt`](LICENSE.fr.txt).
 
 RustDesk est une marque de ses propriétaires. Ce projet n'a aucun lien avec eux.

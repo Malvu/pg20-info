@@ -49,6 +49,6 @@ Do not describe a vulnerability in a public issue. Use GitHub's private reportin
 
 ## Licence
 
-See the `LICENSE` file.
+See the `LICENSE` file (MIT licence, in English: it is the binding text). A French courtesy translation is in [`LICENSE.fr.txt`](LICENSE.fr.txt).
 
 RustDesk is a trademark of its owners. This project has no connection with them.

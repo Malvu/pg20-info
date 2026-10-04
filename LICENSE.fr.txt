@@ -1,0 +1,20 @@
+Licence MIT - traduction française de courtoisie
+
+Ceci est une traduction française, fournie pour la commodité des lecteurs. Seul le texte anglais du fichier LICENSE a valeur de licence : en cas de divergence, il prévaut.
+
+Copyright (c) 2026 Malvu
+
+L'autorisation est par la présente accordée, gracieusement, à toute personne obtenant une copie
+de ce logiciel et des fichiers de documentation associés (le « Logiciel »), de traiter dans le Logiciel sans restriction,
+y compris et sans limitation les droits
+d'utiliser, de copier, de modifier, de fusionner, de publier, de distribuer, de sous-licencier et/ou de vendre des copies du Logiciel, et d'autoriser les personnes auxquelles le Logiciel est fourni à le faire, aux conditions suivantes :
+
+Le copyright ci-dessus et la présente notice d'autorisation
+doivent être inclus dans toutes les copies ou parties substantielles du Logiciel.
+
+LE LOGICIEL EST FOURNI « TEL QUEL », SANS GARANTIE D'AUCUNE SORTE, EXPRESSE OU IMPLICITE,
+Y COMPRIS MAIS SANS S'Y LIMITER LES GARANTIES DE QUALITÉ MARCHANDE, D'ADÉQUATION À UN USAGE
+PARTICULIER ET DE NON-CONTREFAÇON. EN AUCUN CAS LES AUTEURS OU TITULAIRES DU DROIT D'AUTEUR
+NE SERONT RESPONSABLES DE TOUTE RÉCLAMATION, DOMMAGE OU AUTRE RESPONSABILITÉ,
+QUE CE SOIT DANS LE CADRE D'UN CONTRAT, D'UN DÉLIT OU AUTRE,
+DÉCOULANT DE, OU EN RELATION AVEC LE LOGICIEL OU L'UTILISATION OU D'AUTRES OPÉRATIONS SUR LE LOGICIEL.
