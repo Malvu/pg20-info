@@ -41,7 +41,7 @@ Your technician key (`Setup-Technician.ps1` creates it), the text of your own in
 
 ## Status
 
-Works for the author. Not tested yet: the online exe, Windows 11, other antivirus programs (including their reaction to the maintenance task), a session from a network other than the test computer's, and the automatic uninstallation on a real computer (checked by automated tests only, as of this version).
+Works for the author. Not tested yet: the online exe, Windows 11, other antivirus programs (including their reaction to the maintenance task), a session from a network other than the test computer's. The automatic uninstallation has been tried for real on a test computer.
 
 ## Reporting a security problem
 

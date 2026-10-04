@@ -77,6 +77,6 @@ Without `-InstallerFile`, the exe downloads RustDesk at installation time. Witho
 ## What has been checked on this kit, and what has not
 
 - Checked: none of the author's real values remains in the files (automatic search); all PowerShell, shell and Python scripts pass a syntax check; only value lines changed compared with the original files, plus the `<...>` value checks of the install scripts, of `02-vm.sh` and of `01-storage.sh`.
-- Not checked: the maintenance task and the automatic uninstallation have been verified by automated tests only; their real-world test on a client computer is not confirmed as of this version.
+- Checked for real: the automatic uninstallation by the maintenance task, on a Windows 10 test computer. Not checked: the firing of the task at the computer's start-up and the antivirus reaction.
 - Not checked: the kit has **not** been reinstalled from scratch on a clean machine, nor have the `<...>` value checks been run on a real server. The original scripts, however, run at the author's (see the "What is tested" section of the tutorial).
 - In `home-assistant\4-fiches-recues.yaml`, the second automation is given as a comment (to be recreated in the interface). Its up-to-date version is in the tutorial.

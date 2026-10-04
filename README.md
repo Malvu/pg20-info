@@ -41,7 +41,7 @@ Votre clé de technicien (`Setup-Technician.ps1` la crée), le texte de vos cond
 
 ## Statut
 
-Fonctionne chez l'auteur. Pas encore testé : l'exe en ligne, Windows 11, d'autres antivirus (dont leur réaction à la tâche de maintenance), une session depuis un autre réseau que celui du poste de test, et la désinstallation automatique sur un vrai poste (vérifiée par des tests automatiques seulement à la date de cette version). Détails dans le tuto, section « Ce qui est testé ».
+Fonctionne chez l'auteur. Pas encore testé : l'exe en ligne, Windows 11, d'autres antivirus (dont leur réaction à la tâche de maintenance), une session depuis un autre réseau que celui du poste de test. La désinstallation automatique a été essayée en réel sur un poste de test. Détails dans le tuto, section « Ce qui est testé ».
 
 ## Signaler un problème de sécurité
 
