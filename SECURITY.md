@@ -9,10 +9,10 @@ Utilisez le signalement privé de GitHub : onglet **Security**, puis **Report a 
 Par ordre d'exposition :
 
 1. `proxmox-setup/pg20-feed/inbox-receive.py` : le receveur de fiches et d'ordres, joignable depuis Internet sur TCP 21120 (y compris `GET /v1/order` et `POST /v1/order-done`).
-2. `Pg20-Agent.ps1` : la tâche de maintenance, en compte système chez le client. Vérification de la signature des ordres, droits du dossier d'installation, choix de ce qu'elle accepte d'exécuter.
-3. `Deploy-RustDesk.ps1` et l'exe d'installation : ils tournent en administrateur chez le client.
+2. `Pg20-Client-Maintenance.ps1` : la tâche de maintenance, en compte système chez le client. Vérification de la signature des ordres, droits du dossier d'installation, choix de ce qu'elle accepte d'exécuter.
+3. `Pg20-Client-Installation.ps1` et l'exe d'installation : ils tournent en administrateur chez le client.
 4. `proxmox-setup/pg20-feed/peers-feed.py` et `peers-forget.py` : réseau local et VPN seulement, mais ils agissent sur la base du serveur et déposent les ordres signés.
-5. `Pg20-Clients.ps1` et `Pg20-Common.ps1` : le carnet du technicien, le déchiffrement des fiches et la signature des ordres.
+5. `Pg20-Clients-Carnet.ps1` et `Pg20-Commun.ps1` : le carnet du technicien, le déchiffrement des fiches et la signature des ordres.
 
 Décrivez ce que vous avez observé, comment le reproduire, et sur quelle version (ou quel commit).
 

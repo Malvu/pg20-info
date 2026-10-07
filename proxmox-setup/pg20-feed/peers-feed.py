@@ -15,7 +15,12 @@ POST /records/ack          -> {"items":[{"id":"...","received_at":"..."}], "vali
                               efface les fiches (et les validations) que le PC du technicien a bien enregistrées, seulement si
                               received_at correspond : une fiche plus récente est conservée
 POST /peers/forget         -> {"id":"..."} : le technicien supprime ce client ; la demande est déposée dans /var/lib/pg20-forget, où un
-                              service root (peers-forget.py) retire le poste de la base de hbbs, après en avoir fait une copie
+                              service root (peers-forget.py) retire le poste de la base de hbbs, après en avoir fait une copie ;
+                              les fiches ARCHIVÉES de ce client (voir ci-dessous) sont effacées en même temps
+GET  /archive[?offset=N&limit=N] -> ARCHIVE des fiches : à chaque accusé de réception (POST /records/ack), la fiche reçue est gardée dans
+                              /var/lib/pg20-archive (une copie par fiche, 10 par client au plus), TELLE QUELLE c'est-à-dire chiffrée avec la clé
+                              publique du technicien : ce service ne peut pas la lire. Sert à reconstruire le carnet du technicien si son PC est
+                              perdu (Pg20-Clients-Carnet.ps1 -RestoreFromServer, avec la clé privée sauvegardée). Les plus anciennes d'abord.
 GET  /orders               -> ordres de désinstallation déposés et leur état (done = le poste a signalé l'exécution)
 POST /orders               -> {"order": {...}, "sig": "..."} : dépose un ordre de désinstallation SIGNÉ par le technicien (un poste équipé de la tâche de
                               maintenance l'interroge toutes les 30 min auprès du receveur et en vérifie la signature)
@@ -45,6 +50,9 @@ BIND = os.environ.get("PG20_FEED_BIND", "127.0.0.1")
 PORT = int(os.environ.get("PG20_FEED_PORT", "8099"))
 RECENT_TTL = int(os.environ.get("PG20_FEED_RECENT_TTL", "1800"))    # annonce gardée après le relevé de la fiche par le PC (ou jusqu'à sa validation)
 FORGET = os.environ.get("PG20_FORGET_SPOOL", "/var/lib/pg20-forget")
+ARCHIVE = os.environ.get("PG20_ARCHIVE", "/var/lib/pg20-archive")      # copie des fiches (chiffrées pour le technicien) ; dossier créé par install-archive.sh
+ARCHIVE_PER_ID = int(os.environ.get("PG20_ARCHIVE_PER_ID", "10"))      # fiches gardées par client (les plus récentes)
+ARCHIVE_LOCK = threading.Lock()
 MAX_FORGET = 20                # demandes de suppression en attente d'être exécutées
 FORGET_LOCK = threading.Lock()
 VALID_TTL = 14 * 86400
@@ -179,6 +187,70 @@ def mark_followed(pid, stamp):
         except (OSError, ValueError, TypeError, AttributeError):
             continue
     return marked
+
+
+def archive_files(pid):
+    """Noms des fiches archivées pour cet ID, de la plus ancienne à la plus récente."""
+    try:
+        return sorted(n for n in os.listdir(ARCHIVE) if n.startswith(pid + "_") and n.endswith(".json"))
+    except OSError:
+        return []
+
+
+def archive_record(rec):
+    """Garde une copie de la fiche (déjà chiffrée avec la clé publique du technicien) au moment où le PC l'a bien enregistrée.
+    Un échec d'écriture est consigné mais ne bloque jamais l'accusé de réception."""
+    try:
+        item = public_item(rec, False)
+        stamp = re.sub(r"[^0-9A-Za-z]", "", item["received_at"])
+        with ARCHIVE_LOCK:
+            os.makedirs(ARCHIVE, mode=0o700, exist_ok=True)
+            fd, tmp = tempfile.mkstemp(dir=ARCHIVE, prefix=".arc-")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(item, f, ensure_ascii=False)
+            os.chmod(tmp, 0o600)
+            os.replace(tmp, os.path.join(ARCHIVE, "%s_%s.json" % (item["id"], stamp)))
+            for old in archive_files(item["id"])[:-ARCHIVE_PER_ID]:
+                try:
+                    os.unlink(os.path.join(ARCHIVE, old))
+                except OSError:
+                    pass
+        return True
+    except (OSError, KeyError, TypeError, ValueError) as e:
+        sys.stderr.write("archive non écrite: %s\n" % e)
+        return False
+
+
+def list_archive(offset, limit):
+    """(total, fiches) : de la plus ancienne à la plus récente, `limit` au plus à partir de `offset`."""
+    try:
+        names = sorted(n for n in os.listdir(ARCHIVE) if n.endswith(".json") and not n.startswith("."))
+    except OSError:
+        return 0, []
+    out = []
+    for n in names:
+        try:
+            with open(os.path.join(ARCHIVE, n), "r", encoding="utf-8") as f:
+                item = public_item(json.load(f), False)
+            if ID_RE.match(item["id"]):
+                out.append(item)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    out.sort(key=lambda r: r["received_at"])
+    return len(out), out[offset:offset + limit]
+
+
+def erase_archive(pid):
+    """Le client est supprimé : ses fiches archivées aussi (« il n'a plus jamais existé »)."""
+    n = 0
+    with ARCHIVE_LOCK:
+        for name in archive_files(pid):
+            try:
+                os.unlink(os.path.join(ARCHIVE, name))
+                n += 1
+            except OSError:
+                pass
+    return n
 
 
 def store_forget(pid):
@@ -325,10 +397,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = parts.path
         if path == "/health":
             return self._send(200, b'{"ok": true}')
-        if path in ("/peers", "/records", "/orders"):
+        if path in ("/peers", "/records", "/orders", "/archive"):
             if not self._authorized():
                 return self._send(401, b'{"error": "unauthorized"}')
             query = parse_qs(parts.query)
+            if path == "/archive":
+                try:
+                    offset = max(0, int(query.get("offset", ["0"])[0]))
+                    limit = max(1, min(int(query.get("limit", ["100"])[0]), 200))
+                except (ValueError, TypeError):
+                    return self._send(400, b'{"error": "bad request"}')
+                total, recs = list_archive(offset, limit)
+                return self._json(200, {"count": total, "offset": offset, "records": recs})
             if path == "/orders":
                 found = list_orders()
                 return self._json(200, {"count": len(found), "orders": found})
@@ -424,7 +504,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self._send(500, b'{"error": "write failed"}')
             if not queued:
                 return self._send(503, b'{"error": "full"}')
-            sys.stderr.write("suppression demandée: id=%s\n" % body["id"])
+            erased = erase_archive(body["id"])
+            sys.stderr.write("suppression demandée: id=%s (%d fiche(s) archivée(s) effacée(s))\n" % (body["id"], erased))
             return self._send(200, b'{"ok": true}')
 
         if path == "/records/validate":
@@ -451,6 +532,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if rec.get("received_at") != it["received_at"]:
                     continue                # une fiche plus récente a remplacé celle-ci : on la garde
                 remember(rec)               # annonce gardée RECENT_TTL s pour Home Assistant
+                archive_record(rec)         # copie chiffrée gardée (reconstruction du carnet si le PC du technicien est perdu)
                 os.unlink(path_rec)
                 deleted += 1
             except (OSError, ValueError, KeyError, TypeError):

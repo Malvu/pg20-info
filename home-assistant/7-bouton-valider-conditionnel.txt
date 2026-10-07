@@ -1,0 +1,21 @@
+﻿Pg20 Info : bouton « Valider » visible seulement quand une fiche attend (Home Assistant, 2026-10-05 20:26)
+
+Demande de l'utilisateur : la page « Fiches » (tableau de bord pg20-info) gardait le bouton « Valider » alors qu'il n'y avait rien à valider.
+
+Ce qui a ete fait
+  1. Assistant (Template Helper, cree par le flux de configuration, modifiable dans Parametres > Appareils et services > Entrees) :
+       binary_sensor.rustdesk_fiche_en_attente   (entree de configuration du Helper Template)
+       etat : {{ (state_attr('sensor.rustdesk_postes_enregistres', 'peers') | default([], true) | selectattr('pending_since', 'defined') | list | length) > 0 }}
+     « on » = au moins un poste annonce a valider (meme calcul que la carte de texte de la page) ; « off » sinon, ou si le capteur est indisponible.
+  2. Page pg20-info, vue « Fiches » : la carte « Valider » (3e carte de la 1re section) a recu
+       "visibility": [{"condition": "state", "entity": "binary_sensor.rustdesk_fiche_en_attente", "state": "on"}]
+     Rien d'autre n'a change (le script script.pg20_valider_et_accueil, les automatisations et la carte de texte sont intacts).
+
+Verifie : calcul du modele sur l'etat reel (faux), sur des donnees fictives sans fiche (faux), avec une fiche (vrai), attribut absent (faux) ;
+configuration relue apres ecriture. NON vu a l'ecran (pas de capture) et pas encore essaye avec une vraie fiche : au prochain essai, le bouton
+doit apparaitre avec la fiche, puis disparaitre une fois validee.
+
+Revenir en arriere
+  - Page : 7-page-fiches-avant-bouton-conditionnel.json (configuration d'avant). Dans Home Assistant : Parametres > Tableaux de bord > pg20-info >
+    modifier la carte « Valider » > retirer la condition de visibilite.
+  - Assistant : Parametres > Appareils et services > Entrees > « RustDesk fiche en attente » > Supprimer (la carte, sans lui, ne s'afficherait plus).

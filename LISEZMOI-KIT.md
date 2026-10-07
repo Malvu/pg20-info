@@ -13,9 +13,9 @@ Kit assaini le 2026-10-03, mis à jour le 2026-10-04 (conditions, preuve d'accep
 |---|---|---|
 | `serveur-pg20-info\` | 1 | Serveur RustDesk (docker-compose, `install.sh`, notice) |
 | `proxmox-setup\` | 1 | Facultatif, pour Proxmox : stockage (`01-storage.sh`), VM cloud-init (`02-vm.sh`, `user-data.template.yaml`), pare-feu (`pg20-firewall.nft`) |
-| `Deploy-RustDesk.ps1`, `Build-Installer.ps1`, `installer-src\` | 1 | Script d'installation et construction de l'exe |
-| `Setup-Technician.ps1`, `Pg20-Common.ps1`, `Pg20-Clients.*`, `Install-Watch.ps1`, `Install-Raccourcis.ps1` | 2 | Clé du technicien, carnet de clients (et signature des ordres de désinstallation), surveillance, icônes |
-| `Pg20-Agent.ps1` | 3 | Tâche de maintenance installée par l'exe chez le client : désinstalle RustDesk sur un ordre signé. Embarquée par `Build-Installer.ps1` ; ne la lancez pas à la main |
+| `Pg20-Client-Installation.ps1`, `Pg20-Exe-Compiler.ps1`, `installer-src\` | 1 | Script d'installation et construction de l'exe |
+| `Pg20-Technicien-Configurer.ps1`, `Pg20-Commun.ps1`, `Pg20-Clients.*`, `Pg20-Clients-Surveillance-Installer.ps1`, `Pg20-Clients-Raccourcis-Installer.ps1` | 2 | Clé du technicien, carnet de clients (et signature des ordres de désinstallation), surveillance, icônes |
+| `Pg20-Client-Maintenance.ps1` | 3 | Tâche de maintenance installée par l'exe chez le client : désinstalle RustDesk sur un ordre signé. Embarquée par `Pg20-Exe-Compiler.ps1` ; ne la lancez pas à la main |
 | `conditions\conditions-modele.txt`, `conditions-modele.en.txt` | 1 à 3 | Modèle des conditions d'installation que le client accepte à l'écran (français ; traduction de courtoisie en anglais) |
 | `proxmox-setup\pg20-feed\` | 3 | Services de la VM : exportateur, flux, receveur, oubli, avec leurs unités systemd et scripts d'installation |
 | `home-assistant\` | 3 | Capteur, secrets, automatisations, commande REST |
@@ -26,8 +26,8 @@ Les scripts `.sh` perdent leur droit d'exécution quand ils passent par Windows 
 
 ## Ce qui n'est PAS dans le kit
 
-- **`technician.pub.xml`** : c'est la clé publique de l'auteur. Créez la vôtre avec `.\Setup-Technician.ps1`, puis sauvegardez la clé privée (`-ExportBackup`).
-- **Les exes** : construisez-les avec `Build-Installer.ps1` (voir plus bas). Aucun exe de l'auteur n'est fourni, ils contiennent ses adresses.
+- **`technician.pub.xml`** : c'est la clé publique de l'auteur. Créez la vôtre avec `.\Pg20-Technicien-Configurer.ps1`, puis sauvegardez la clé privée (`-ExportBackup`).
+- **Les exes** : construisez-les avec `Pg20-Exe-Compiler.ps1` (voir plus bas). Aucun exe de l'auteur n'est fourni, ils contiennent ses adresses.
 - **L'installeur RustDesk** : à télécharger vous-même (voir `redist\A-LIRE.txt`).
 - **La configuration complète de Home Assistant** : seulement les blocs à ajouter. Les scripts `pg20_valider_derniere`, `pg20_valider_et_accueil` et le tableau de bord `pg20-info` sont donnés en YAML dans le tuto.
 - **Les tests automatisés** de l'auteur.
@@ -36,7 +36,7 @@ Les scripts `.sh` perdent leur droit d'exécution quand ils passent par Windows 
 
 | Valeur | Où |
 |---|---|
-| `<IP_VM>` | `home-assistant\1-capteur-rest.yaml`, `home-assistant\5-rest-command-valider.yaml`, `proxmox-setup\02-vm.sh`, `proxmox-setup\pg20-feed\pg20-peers-feed.service` (exemples dans `Setup-Technician.ps1` et `serveur-pg20-info\LISEZMOI.md`) |
+| `<IP_VM>` | `home-assistant\1-capteur-rest.yaml`, `home-assistant\5-rest-command-valider.yaml`, `proxmox-setup\02-vm.sh`, `proxmox-setup\pg20-feed\pg20-peers-feed.service` (exemples dans `Pg20-Technicien-Configurer.ps1` et `serveur-pg20-info\LISEZMOI.md`) |
 | `<IP_PASSERELLE>` | `proxmox-setup\pg20-firewall.nft`, `proxmox-setup\02-vm.sh` |
 | `<RESEAU_LOCAL>`, `<RESEAU_WIREGUARD>` | `proxmox-setup\pg20-firewall.nft`, `proxmox-setup\pg20-feed\pg20-peers-feed.service` |
 | `<MAC_DE_LA_VM>` | `proxmox-setup\02-vm.sh` |
@@ -45,7 +45,7 @@ Les scripts `.sh` perdent leur droit d'exécution quand ils passent par Windows 
 | `<DOSSIER_DU_PROJET>` | `home-assistant\2-secrets.exemple.yaml` (exemple de commande) |
 | `__HASH__`, `__SSHKEY__` | `user-data.template.yaml` : remplis par `02-vm.sh` depuis `/root/pg20-setup/hash.txt` et `ssh.pub` |
 
-Adresse publique, clé du serveur et empreinte TLS ne sont écrites dans aucun fichier du kit : elles se passent en arguments à `Build-Installer.ps1`.
+Adresse publique, clé du serveur et empreinte TLS ne sont écrites dans aucun fichier du kit : elles se passent en arguments à `Pg20-Exe-Compiler.ps1`.
 
 Les scripts `install-feed.sh`, `install-inbox.sh` et `install-forget.sh` refusent de continuer tant qu'il reste un `<...>` dans `pg20-peers-feed.service`. `02-vm.sh` et `01-storage.sh` font de même pour leurs propres valeurs.
 
@@ -62,15 +62,15 @@ Ces valeurs sont des choix de l'auteur, pas des secrets. Adaptez-les si les vôt
 ## Construire un exe (rappel)
 
 ```powershell
-.\Setup-Technician.ps1        # une fois : crée votre clé, écrit technician.pub.xml
-.\Build-Installer.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe `
+.\Pg20-Technicien-Configurer.ps1        # une fois : crée votre clé, écrit technician.pub.xml
+.\Pg20-Exe-Compiler.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe `
   -Server <ADRESSE_PUBLIQUE> -Key "<CLE_PUBLIQUE_SERVEUR>" `
   -TechnicianPublicKey .\technician.pub.xml -InboxPin <EMPREINTE_TLS> `
   -TermsFile .\conditions\conditions-AAAA-MM-JJ.txt `
   -Output .\dist\Support-Offline.exe
 ```
 
-`-TermsFile` : le texte des conditions que le client doit accepter avant toute installation. Copiez `conditions\conditions-modele.txt` (ou `.en.txt`) sous un nom daté, remplissez tous les champs entre crochets, **faites-le relire**, et gardez chaque version distribuée : la preuve d'acceptation désigne le texte par son empreinte. La construction refuse un texte qui contient encore un champ entre crochets. Avec `-InboxPin` et `-TechnicianPublicKey`, l'exe embarque aussi la tâche de maintenance (`Pg20-Agent.ps1`) ; la construction exige alors un texte qui la mentionne (« tâche de maintenance » ou « maintenance task »). `-NoAgent` construit un exe sans elle : les postes se désinstallent alors par le parcours guidé.
+`-TermsFile` : le texte des conditions que le client doit accepter avant toute installation. Copiez `conditions\conditions-modele.txt` (ou `.en.txt`) sous un nom daté, remplissez tous les champs entre crochets, **faites-le relire**, et gardez chaque version distribuée : la preuve d'acceptation désigne le texte par son empreinte. La construction refuse un texte qui contient encore un champ entre crochets. Avec `-InboxPin` et `-TechnicianPublicKey`, l'exe embarque aussi la tâche de maintenance (`Pg20-Client-Maintenance.ps1`) ; la construction exige alors un texte qui la mentionne (« tâche de maintenance » ou « maintenance task »). `-NoAgent` construit un exe sans elle : les postes se désinstallent alors par le parcours guidé.
 
 Sans `-InstallerFile`, l'exe télécharge RustDesk au moment de l'installation. Sans `-TechnicianPublicKey` et `-InboxPin`, vous êtes au niveau 1 (pas de fiche chiffrée).
 

@@ -1,0 +1,16 @@
+{
+    "server":  "\u003cADRESSE_PUBLIQUE\u003e",
+    "key":  "\u003cCLE_PUBLIQUE_SERVEUR\u003e",
+    "inboxPin":  "\u003cEMPREINTE_TLS : 64 caracteres hexadecimaux\u003e",
+    "technicianPublicKey":  "technician.pub.xml",
+    "installerFile":  "redist\\rustdesk-1.5.0-x86_64.exe",
+    "brand":  {
+                  "name":  "\u003cVOTRE MARQUE\u003e",
+                  "company":  "\u003cVOTRE SOCIETE\u003e",
+                  "logo":  "branding\\logo.png",
+                  "icon":  ""
+              },
+    "termsFile":  "latest",
+    "outDir":  "dist\\clients",
+    "exeVersion":  "1.0.0.0"
+}

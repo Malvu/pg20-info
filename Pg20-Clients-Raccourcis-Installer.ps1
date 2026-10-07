@@ -4,20 +4,20 @@
 
 .DESCRIPTION
     - « Pg20 - Se connecter » : petite fenêtre avec la liste de vos clients validés, une recherche, Entrée ou double-clic
-      ouvre RustDesk avec l'ID et le mot de passe déjà remplis (Pg20-Clients.ps1 -Quick).
+      ouvre RustDesk avec l'ID et le mot de passe déjà remplis (Pg20-Clients-Carnet.ps1 -Quick).
     - « Pg20 - Page clients »  : la page web complète (clients, fiches à valider, renommer, masquer, oublier).
     Les deux se lancent sans fenêtre de console (conhost --headless). Elles utilisent VOTRE liste de clients.
 
 .EXAMPLE
-    .\Install-Raccourcis.ps1            # crée les deux icônes sur le bureau
+    .\Pg20-Clients-Raccourcis-Installer.ps1            # crée les deux icônes sur le bureau
 .EXAMPLE
-    .\Install-Raccourcis.ps1 -Remove    # les retire
+    .\Pg20-Clients-Raccourcis-Installer.ps1 -Remove    # les retire
 #>
 [CmdletBinding()]
 param([switch]$Remove)
 $ErrorActionPreference = 'Stop'
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
-$target = Join-Path $scriptDir 'Pg20-Clients.ps1'
+$target = Join-Path $scriptDir 'Pg20-Clients-Carnet.ps1'
 if (-not (Test-Path $target)) { throw "Script introuvable : $target" }
 $desktop = [Environment]::GetFolderPath('Desktop')
 $conhost = Join-Path $env:WINDIR 'System32\conhost.exe'

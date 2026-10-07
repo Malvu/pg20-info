@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Compile RustDesk-Deploy.exe : un lanceur Windows autonome qui embarque Deploy-RustDesk.ps1.
+    Compile RustDesk-Deploy.exe : un lanceur Windows autonome qui embarque Pg20-Client-Installation.ps1.
 
 .DESCRIPTION
     Utilise uniquement le compilateur C# fourni avec Windows (aucun téléchargement, aucun outil à installer).
@@ -9,18 +9,18 @@
     le client n'a plus qu'à double-cliquer.
 
 .EXAMPLE
-    .\Build-Installer.ps1
+    .\Pg20-Exe-Compiler.ps1
 .EXAMPLE
-    .\Build-Installer.ps1 -Server rd.mondomaine.fr -Key "AbCdEf...=" -Output .\dist\RustDesk-Dupont.exe
+    .\Pg20-Exe-Compiler.ps1 -Server rd.mondomaine.fr -Key "AbCdEf...=" -Output .\dist\RustDesk-Dupont.exe
 .EXAMPLE
-    .\Build-Installer.ps1 -ConfigString "0nI9..." -ClientName "Dupont SARL"
+    .\Pg20-Exe-Compiler.ps1 -ConfigString "0nI9..." -ClientName "Dupont SARL"
 .EXAMPLE
     # Exe hors ligne : télécharge l'installeur RustDesk maintenant et l'embarque (aucun accès GitHub chez le client)
-    .\Build-Installer.ps1 -Bundle -Server rd.mondomaine.fr -Key "AbCdEf...="
+    .\Pg20-Exe-Compiler.ps1 -Bundle -Server rd.mondomaine.fr -Key "AbCdEf...="
 .EXAMPLE
     # Embarquer une version précise, ou un installeur déjà téléchargé
-    .\Build-Installer.ps1 -Bundle -Version 1.4.9
-    .\Build-Installer.ps1 -InstallerFile C:\Soft\rustdesk-1.4.9-x86_64.exe
+    .\Pg20-Exe-Compiler.ps1 -Bundle -Version 1.4.9
+    .\Pg20-Exe-Compiler.ps1 -InstallerFile C:\Soft\rustdesk-1.4.9-x86_64.exe
 
 .NOTES
     Options du lanceur au moment de l'exécution :
@@ -31,7 +31,7 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Script,                  # par défaut : Deploy-RustDesk.ps1 à côté de ce script
+    [string]$Script,                  # par défaut : Pg20-Client-Installation.ps1 à côté de ce script
     [string]$Output,                  # par défaut : dist\RustDesk-Deploy.exe
     [string]$ClientName,
     [string]$ConfigString,
@@ -42,18 +42,25 @@ param(
     [switch]$Bundle,          # télécharge l'installeur RustDesk (GitHub) au moment du build et l'embarque
     [string]$Version,         # avec -Bundle : version précise (ex. 1.4.9), sinon la dernière
     [string]$InstallerFile,   # ou : installeur local déjà téléchargé (rustdesk-X.Y.Z-x86_64.exe)
-    [string]$TechnicianPublicKey,   # fichier technician.pub.xml (Setup-Technician.ps1) : les mots de passe des clients sont chiffrés avec cette clé
+    [string]$TechnicianPublicKey,   # fichier technician.pub.xml (Pg20-Technicien-Configurer.ps1) : les mots de passe des clients sont chiffrés avec cette clé
     [string]$InboxUrl,        # réception des fiches sur votre serveur : hôte[:port] ; par défaut <Server>:21120 quand -InboxPin est donné
     [string]$InboxPin,        # empreinte SHA-256 (64 hex) du certificat TLS du serveur (affichée par install-inbox.sh) : l'exe n'envoie qu'à ce certificat
     [string]$TermsFile,       # texte des conditions d'installation (UTF-8, ligne « Version : ... ») : l'exe exige leur acceptation et en garde la preuve
+    [switch]$CleanReinstall,  # fige « réinstallation propre » dans l'exe : un RustDesk déjà relié à votre serveur est effacé avant l'installation (nouvelle identité)
     [switch]$NoAgent,         # n'embarque pas la tâche de maintenance (désinstallation à distance sur ordre signé) : sans elle, la désinstallation se fait à la main
+    [switch]$Light,           # CLIENT LÉGER : fige « -Leger » (session de dépannage sans installation) ; l'exe ne demande PAS les droits administrateur
+    [string]$BrandName,       # marque du technicien (ex. « Pg20 Info ») : titre de la console, en-tête de la fenêtre d'acceptation, propriétés de l'exe
+    [string]$CompanyName,     # société affichée dans les propriétés de l'exe (par défaut : la marque)
+    [string]$IconFile,        # icône .ico de l'exe (explorateur, barre des tâches)
+    [string]$LogoFile,        # logo .png affiché en tête de la fenêtre d'acceptation
+    [string]$ExeVersion = '1.0.0.0',   # version affichée dans les propriétés de l'exe (4 nombres)
     [switch]$NoElevate        # pour tester la compilation sans droits admin
 )
 
 $ErrorActionPreference = 'Stop'
 # $PSScriptRoot est vide dans les valeurs par défaut des paramètres avec "powershell -File" (Windows PowerShell 5.1) : on le calcule ici
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
-if (-not $Script) { $Script = Join-Path $scriptDir 'Deploy-RustDesk.ps1' }
+if (-not $Script) { $Script = Join-Path $scriptDir 'Pg20-Client-Installation.ps1' }
 if (-not $Output) { $Output = Join-Path $scriptDir 'dist\RustDesk-Deploy.exe' }
 
 $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
@@ -65,13 +72,30 @@ if ($Version -and -not $Bundle) { throw '-Version s''utilise avec -Bundle.' }
 if ($InstallerFile -and -not (Test-Path $InstallerFile)) { throw "Installeur introuvable : $InstallerFile" }
 if ($TermsFile -and -not (Test-Path -LiteralPath $TermsFile)) { throw "Texte des conditions introuvable : $TermsFile" }
 
+# Marque : texte court sans guillemet, barre oblique inverse ni caractère de contrôle (il est recopié dans le code C# généré et dans la ligne de commande)
+foreach ($pair in @(@('-BrandName', $BrandName), @('-CompanyName', $CompanyName))) {
+    if ($pair[1] -and ($pair[1].Trim().Length -lt 1 -or $pair[1].Length -gt 40 -or $pair[1] -match '["\\\x00-\x1f]')) { throw "$($pair[0]) : 1 à 40 caractères, sans guillemet, sans barre oblique inverse." }
+}
+if ($ExeVersion -notmatch '^\d{1,5}(\.\d{1,5}){3}$') { throw '-ExeVersion : quatre nombres séparés par des points (ex. 1.0.0.0).' }
+Add-Type -AssemblyName System.Drawing
+if ($IconFile) {
+    if (-not (Test-Path -LiteralPath $IconFile)) { throw "Icône introuvable : $IconFile" }
+    try { $ic = New-Object System.Drawing.Icon((Resolve-Path -LiteralPath $IconFile).Path); $ic.Dispose() } catch { throw "Icône illisible (fichier .ico attendu) : $IconFile" }
+}
+if ($LogoFile) {
+    if (-not (Test-Path -LiteralPath $LogoFile)) { throw "Logo introuvable : $LogoFile" }
+    if ((Get-Item -LiteralPath $LogoFile).Length -gt 2MB) { throw 'Logo trop lourd (2 Mo au plus).' }
+    try { $img = [System.Drawing.Image]::FromFile((Resolve-Path -LiteralPath $LogoFile).Path); $w = $img.Width; $h = $img.Height; $img.Dispose() } catch { throw "Logo illisible (image .png attendue) : $LogoFile" }
+    if ($w -gt 1024 -or $h -gt 1024 -or $w -lt 16 -or $h -lt 16) { throw "Logo : dimensions de 16 à 1024 pixels attendues (ici ${w}x${h})." }
+}
+
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 function Get-RustDeskInstaller([string]$Version, [string]$DestDir) {
     $api = if ($Version) { "https://api.github.com/repos/rustdesk/rustdesk/releases/tags/$Version" }
            else          { 'https://api.github.com/repos/rustdesk/rustdesk/releases/latest' }
     Write-Host "[*] Recherche de l'installeur ($(if ($Version) { $Version } else { 'dernière version' }))" -ForegroundColor Cyan
-    $rel   = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'Build-Installer' }
+    $rel   = Invoke-RestMethod -Uri $api -Headers @{ 'User-Agent' = 'Pg20-Exe-Compiler' }
     $asset = $rel.assets | Where-Object { $_.name -match '^rustdesk-[\d.]+-x86_64\.exe$' } | Select-Object -First 1
     if (-not $asset) { throw "Aucun installeur Windows x86_64 trouvé dans la release $($rel.tag_name)." }
 
@@ -86,6 +110,50 @@ function Get-RustDeskInstaller([string]$Version, [string]$DestDir) {
     $dest
 }
 
+# Fabrique une icône .ico (tailles 16 à 128, 32 bits avec transparence) à partir d'une image : le logo de la marque suffit, pas besoin d'un .ico à part
+function ConvertTo-IcoFile([string]$ImagePath, [string]$IcoPath) {
+    $src = [System.Drawing.Image]::FromStream((New-Object IO.MemoryStream(, [IO.File]::ReadAllBytes($ImagePath))))
+    try {
+        $sizes = 16, 24, 32, 48, 64, 128
+        $entries = foreach ($s in $sizes) {
+            $bmp = New-Object System.Drawing.Bitmap($s, $s, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.Clear([System.Drawing.Color]::Transparent)
+            $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+            $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
+            $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+            # l'image est centrée et gardée dans ses proportions
+            $k = [Math]::Min($s / $src.Width, $s / $src.Height)
+            $w = [int][Math]::Round($src.Width * $k); $h = [int][Math]::Round($src.Height * $k)
+            $g.DrawImage($src, [int](($s - $w) / 2), [int](($s - $h) / 2), $w, $h); $g.Dispose()
+            $rect = New-Object System.Drawing.Rectangle(0, 0, $s, $s)
+            $data = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+            $raw = New-Object byte[] ($s * $s * 4)
+            [Runtime.InteropServices.Marshal]::Copy($data.Scan0, $raw, 0, $raw.Length)
+            $bmp.UnlockBits($data); $bmp.Dispose()
+            $stride = $s * 4; $pix = New-Object byte[] $raw.Length
+            for ($y = 0; $y -lt $s; $y++) { [Array]::Copy($raw, $y * $stride, $pix, ($s - 1 - $y) * $stride, $stride) }       # lignes de bas en haut
+            $maskRow = [int]([Math]::Ceiling($s / 32.0) * 4)
+            $ms = New-Object IO.MemoryStream; $bw = New-Object IO.BinaryWriter($ms)
+            $bw.Write([int]40); $bw.Write([int]$s); $bw.Write([int]($s * 2)); $bw.Write([int16]1); $bw.Write([int16]32)
+            $bw.Write([int]0); $bw.Write([int]($pix.Length + $maskRow * $s)); $bw.Write([int]0); $bw.Write([int]0); $bw.Write([int]0); $bw.Write([int]0)
+            $bw.Write($pix); $bw.Write((New-Object byte[] ($maskRow * $s))); $bw.Flush()
+            [pscustomobject]@{ size = $s; data = $ms.ToArray() }
+        }
+        $out = New-Object IO.MemoryStream; $w = New-Object IO.BinaryWriter($out)
+        $w.Write([int16]0); $w.Write([int16]1); $w.Write([int16]@($entries).Count)
+        $offset = 6 + 16 * @($entries).Count
+        foreach ($e in $entries) {
+            $w.Write([byte]$e.size); $w.Write([byte]$e.size); $w.Write([byte]0); $w.Write([byte]0); $w.Write([int16]1); $w.Write([int16]32)
+            $w.Write([int]$e.data.Length); $w.Write([int]$offset); $offset += $e.data.Length
+        }
+        foreach ($e in $entries) { $w.Write($e.data) }
+        $w.Flush()
+        [IO.File]::WriteAllBytes($IcoPath, $out.ToArray())
+    }
+    finally { $src.Dispose() }
+}
+
 $src = Join-Path $scriptDir 'installer-src'
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("rd-build-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tmp | Out-Null
@@ -96,7 +164,7 @@ try {
     $defaults = New-Object System.Collections.Generic.List[string]
     $techKeyXml = $null
     if ($TechnicianPublicKey) {
-        if (-not (Test-Path $TechnicianPublicKey)) { throw "Clé publique introuvable : $TechnicianPublicKey (lancez Setup-Technician.ps1)" }
+        if (-not (Test-Path $TechnicianPublicKey)) { throw "Clé publique introuvable : $TechnicianPublicKey (lancez Pg20-Technicien-Configurer.ps1)" }
         $techKeyXml = (Get-Content $TechnicianPublicKey -Raw -Encoding UTF8).Trim()
         if ($techKeyXml -notmatch '^<RSAKeyValue><Modulus>[A-Za-z0-9+/=]+</Modulus><Exponent>[A-Za-z0-9+/=]+</Exponent></RSAKeyValue>$') {
             throw 'Ce fichier ne contient pas une CLÉ PUBLIQUE RSA valide (jamais la clé privée !).'
@@ -113,14 +181,16 @@ try {
     foreach ($pair in @(
         @('-ClientName', $ClientName), @('-ConfigString', $ConfigString), @('-Server', $Server),
         @('-Relay', $Relay), @('-ApiServer', $ApiServer), @('-Key', $Key), @('-TechPublicKey', $techKeyXml),
-        @('-InboxUrl', $InboxUrl), @('-InboxPin', $InboxPin))) {
+        @('-InboxUrl', $InboxUrl), @('-InboxPin', $InboxPin), @('-BrandName', $BrandName))) {
         if ($pair[1]) { $defaults.Add($pair[0]); $defaults.Add($pair[1]) }
     }
+    if ($CleanReinstall) { $defaults.Add('-CleanReinstall') }
+    if ($Light) { $defaults.Add('-Leger') }
     $defaultsFile = Join-Path $tmp 'defaults.txt'
     [IO.File]::WriteAllText($defaultsFile, ($defaults -join "`n"), (New-Object Text.UTF8Encoding $false))
 
     $manifest = Join-Path $src 'app.manifest'
-    if ($NoElevate) {
+    if ($NoElevate -or $Light) {
         $manifest = Join-Path $tmp 'app.manifest'
         (Get-Content (Join-Path $src 'app.manifest') -Raw).Replace('requireAdministrator', 'asInvoker') |
             Set-Content $manifest -Encoding UTF8
@@ -140,12 +210,40 @@ try {
         $bundledSigner = $sig.SignerCertificate.Subject
     }
 
+    # Pas d'icône fournie mais un logo : l'icône de l'exe en est tirée
+    if ($LogoFile -and -not $IconFile) { $IconFile = Join-Path $tmp 'logo.ico'; ConvertTo-IcoFile (Resolve-Path -LiteralPath $LogoFile).Path $IconFile }
+
+    # Propriétés de l'exe (clic droit > Détails, fenêtre de l'UAC) : sans marque, les valeurs d'origine ; avec marque, le nom du technicien partout
+    $company = $(if ($CompanyName) { $CompanyName } else { $BrandName })
+    $asmTitle = $(if ($BrandName) { "$BrandName - Support à distance" } else { 'Déploiement RustDesk' })
+    $asmDesc = $(if ($BrandName) { "Installation de l'accès à distance ($BrandName)" } else { 'Installe et configure RustDesk en accès sans surveillance' })
+    $asmInfo = Join-Path $tmp 'AssemblyInfo.cs'
+    $lines = @('using System.Reflection;', "[assembly: AssemblyTitle(`"$asmTitle`")]", "[assembly: AssemblyDescription(`"$asmDesc`")]")
+    if ($BrandName) { $lines += "[assembly: AssemblyProduct(`"$BrandName`")]" }
+    if ($company) { $lines += "[assembly: AssemblyCompany(`"$company`")]"; $lines += "[assembly: AssemblyCopyright(`"(c) $((Get-Date).Year) $company`")]" }
+    $lines += "[assembly: AssemblyVersion(`"$ExeVersion`")]"; $lines += "[assembly: AssemblyFileVersion(`"$ExeVersion`")]"
+    [IO.File]::WriteAllText($asmInfo, ($lines -join "`r`n") + "`r`n", (New-Object Text.UTF8Encoding $true))
+
+    # Exe sans élévation (client léger, ou -NoElevate) : le script embarqué ne doit PAS exiger les droits d'administrateur. Avec « #Requires -RunAsAdministrator »,
+    # PowerShell le refuse aussitôt (code 1, aucune fenêtre) quand l'exe est lancé sans élévation : c'est ce qui est arrivé au premier essai réel du client léger.
+    $scriptToEmbed = $Script
+    if ($NoElevate -or $Light) {
+        $scriptToEmbed = Join-Path $tmp 'Pg20-Client-Installation.ps1'
+        $scriptText = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $Script).Path, [Text.Encoding]::UTF8)
+        $scriptNoReq = [regex]::Replace($scriptText, '(?m)^#Requires\s+-RunAsAdministrator[ \t]*\r?\n', '')
+        if ($scriptNoReq -match '(?im)^\s*#Requires\b.*RunAsAdministrator') { throw "Une exigence « #Requires ... RunAsAdministrator » reste dans $Script sous une forme que je ne sais pas retirer : l'exe sans élévation ne pourrait pas démarrer, vérifiez le script." }
+        [IO.File]::WriteAllText($scriptToEmbed, $scriptNoReq, (New-Object Text.UTF8Encoding $true))
+    }
+
     $cscArgs = @(
-        '/nologo', '/target:exe', '/optimize+', '/codepage:65001',
+        '/nologo', '/target:winexe', '/optimize+', '/codepage:65001', '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll',
         "/out:$Output", "/win32manifest:$manifest",
-        "/resource:$Script,Deploy-RustDesk.ps1",
+        "/resource:$scriptToEmbed,Pg20-Client-Installation.ps1",
         "/resource:$defaultsFile,defaults.txt"
     )
+    if ($IconFile) { $cscArgs += "/win32icon:$((Resolve-Path -LiteralPath $IconFile).Path)" }
+    if ($LogoFile) { $cscArgs += "/resource:$((Resolve-Path -LiteralPath $LogoFile).Path),logo.png" }
+    $cscArgs += $asmInfo
     if ($InstallerFile) { $cscArgs += "/resource:$InstallerFile,rustdesk-setup.exe" }
     if ($TermsFile) {
         $termsText = [IO.File]::ReadAllText((Resolve-Path -LiteralPath $TermsFile).Path, [Text.Encoding]::UTF8) -replace "`r`n", "`n"
@@ -159,12 +257,12 @@ try {
     # Tâche de maintenance : embarquée dès que l'exe sait où lire les ordres (serveur + empreinte) et comment les vérifier (clé publique). Elle exige un
     # texte de conditions qui la décrit (« tâche de maintenance ») : on ne place jamais sur un poste un composant que le client n'a pas pu lire.
     if (-not $NoAgent -and $InboxPin -and $techKeyXml) {
-        $agentFile = Join-Path $scriptDir 'Pg20-Agent.ps1'
-        if (-not (Test-Path -LiteralPath $agentFile)) { throw "Pg20-Agent.ps1 introuvable à côté de ce script : $agentFile (ou utilisez -NoAgent)" }
-        if (-not ([IO.File]::ReadAllText($agentFile, [Text.Encoding]::UTF8)).Contains('# __UNINSTALL_FUNCTION__')) { throw 'Pg20-Agent.ps1 : marqueur « # __UNINSTALL_FUNCTION__ » introuvable.' }
+        $agentFile = Join-Path $scriptDir 'Pg20-Client-Maintenance.ps1'
+        if (-not (Test-Path -LiteralPath $agentFile)) { throw "Pg20-Client-Maintenance.ps1 introuvable à côté de ce script : $agentFile (ou utilisez -NoAgent)" }
+        if (-not ([IO.File]::ReadAllText($agentFile, [Text.Encoding]::UTF8)).Contains('# __UNINSTALL_FUNCTION__')) { throw 'Pg20-Client-Maintenance.ps1 : marqueur « # __UNINSTALL_FUNCTION__ » introuvable.' }
         if (-not $TermsFile) { throw 'La tâche de maintenance exige un texte de conditions qui la décrit : ajoutez -TermsFile (ou -NoAgent pour un exe sans elle).' }
         if ($termsText -notmatch '(?i)(t[âa]che de maintenance|maintenance task)') { throw 'Le texte des conditions ne décrit pas la « tâche de maintenance » (point 2) : complétez-le (version « c » du texte) ou utilisez -NoAgent.' }
-        $cscArgs += "/resource:$agentFile,Pg20-Agent.ps1"
+        $cscArgs += "/resource:$agentFile,Pg20-Client-Maintenance.ps1"
         $agentEmbedded = $true
     }
     $cscArgs += $program
@@ -183,6 +281,8 @@ else              { Write-Host '    Pas d''installeur embarqué : l''exe téléc
 if ($defaults.Count) { Write-Host "    Paramètres figés : $(($defaults | Where-Object { $_ -like '-*' }) -join ' ')" }
 if ($termsSha) { Write-Host "    Conditions d'installation : version $termsVer, empreinte SHA-256 $termsSha -> l'exe exigera leur acceptation (gardez ce texte : il sert à retrouver ce qui a été accepté)" }
 else { Write-Host '    AUCUN texte de conditions (-TermsFile) : l''exe s''installera sans demander d''acceptation.' -ForegroundColor Yellow }
+if ($CleanReinstall) { Write-Host '    Réinstallation propre : figée dans l''exe (un RustDesk déjà relié à votre serveur est effacé avant l''installation ; identité neuve)' }
+if ($BrandName) { Write-Host "    Marque : $BrandName$(if ($company -and $company -ne $BrandName) { " (société : $company)" })$(if ($IconFile) { ' ; icône' })$(if ($LogoFile) { ' ; logo dans la fenêtre d''acceptation' }) ; version $ExeVersion" }
 if ($agentEmbedded) { Write-Host '    Tâche de maintenance : intégrée (désinstallation à distance, uniquement sur ordre signé du technicien ; le poste doit avoir accepté les conditions qui la décrivent)' }
 else { Write-Host '    Pas de tâche de maintenance : ces postes se désinstalleront à la main (bouton « Désinstaller… » : commande guidée).' }
 Write-Host '    Non signé : SmartScreen affichera "éditeur inconnu" tant que l''exe n''est pas signé avec un certificat de signature de code.'

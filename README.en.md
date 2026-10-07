@@ -5,7 +5,7 @@
 Self-hosted RustDesk remote support: your own server, a one-double-click Windows installer, encrypted client records that register themselves, and validation from your phone.
 
 > **Warning.** This setup opens ports to the Internet and gives permanent access to clients' computers. First read the "Risks and safeguards" section of the tutorial, and use it only with your clients' written agreement.
-> Level 3 also installs, on every client computer, a small maintenance task running as the system account: it can only uninstall RustDesk, on an order signed by your key. Read `Pg20-Agent.ps1` before using it.
+> Level 3 also installs, on every client computer, a small maintenance task running as the system account: it can only uninstall RustDesk, on an order signed by your key. Read `Pg20-Client-Maintenance.ps1` before using it.
 > The code is provided as is, without warranty and without an external security audit. It was written with the help of an AI assistant (Claude), then tested by its author in a single environment: Windows 10, Debian 12 under Proxmox, Home Assistant, Android.
 
 ## Where to start
@@ -29,15 +29,15 @@ You can stop at level 1 or 2: level 3 is the only one that exposes home-made cod
 |---|---|
 | `serveur-pg20-info/` | RustDesk server (hbbs and hbbr) in Docker |
 | `proxmox-setup/` | Firewall, VM under Proxmox (optional) and the VM services (`pg20-feed/`) |
-| `Deploy-RustDesk.ps1`, `Build-Installer.ps1`, `installer-src/` | The installer exe |
-| `Pg20-Agent.ps1` | Maintenance task installed at the client's: uninstalls RustDesk on a signed order |
+| `Pg20-Client-Installation.ps1`, `Pg20-Exe-Compiler.ps1`, `installer-src/` | The installer exe |
+| `Pg20-Client-Maintenance.ps1` | Maintenance task installed at the client's: uninstalls RustDesk on a signed order |
 | `conditions/` | Template of the installation terms (French) and a courtesy translation in English |
-| `Setup-Technician.ps1`, `Pg20-Clients.*`, `Install-*.ps1` | Technician key, client address book, background watcher, desktop icons |
+| `Pg20-Technicien-Configurer.ps1`, `Pg20-Clients.*`, `Install-*.ps1` | Technician key, client address book, background watcher, desktop icons |
 | `home-assistant/` | Sensor, automations and REST command |
 
 ## What is not here
 
-Your technician key (`Setup-Technician.ps1` creates it), the text of your own installation terms (a template is provided, to be completed and reviewed), the exes (`Build-Installer.ps1` builds them with your addresses) and the RustDesk installer (download it yourself). Nothing in this repository contains a real address, key or token.
+Your technician key (`Pg20-Technicien-Configurer.ps1` creates it), the text of your own installation terms (a template is provided, to be completed and reviewed), the exes (`Pg20-Exe-Compiler.ps1` builds them with your addresses) and the RustDesk installer (download it yourself). Nothing in this repository contains a real address, key or token.
 
 ## Status
 

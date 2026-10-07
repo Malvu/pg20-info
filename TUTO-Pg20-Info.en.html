@@ -326,8 +326,8 @@ footer p { max-width: 76ch; }
     <tr><td><code>peers-export.py</code></td><td>VM, root, 15 s timer</td><td>Reads the hbbs SQLite database, writes JSON files</td><td>none</td></tr>
     <tr><td><code>peers-feed.py</code></td><td>VM, unprivileged user</td><td>Serves the list of computers and the records to your PC and to Home Assistant, receives the signed orders from your PC, with a token</td><td><span class="port">TCP 8099</span> local</td></tr>
     <tr><td><code>peers-forget.py</code></td><td>VM, root, triggered by a file</td><td>Deletes a computer from the hbbs database</td><td>none</td></tr>
-    <tr><td><code>Pg20-Clients.ps1</code></td><td>Technician's PC</td><td>Address book, decryption, connection, watcher, signing of uninstall orders</td><td>127.0.0.1 only</td></tr>
-    <tr><td><code>Pg20-Agent.ps1</code></td><td>At the client's, system account</td><td>Maintenance task: reads a signed uninstall order, verifies it, uninstalls RustDesk</td><td>outgoing <span class="port">TCP 21120</span></td></tr>
+    <tr><td><code>Pg20-Clients-Carnet.ps1</code></td><td>Technician's PC</td><td>Address book, decryption, connection, watcher, signing of uninstall orders</td><td>127.0.0.1 only</td></tr>
+    <tr><td><code>Pg20-Client-Maintenance.ps1</code></td><td>At the client's, system account</td><td>Maintenance task: reads a signed uninstall order, verifies it, uninstalls RustDesk</td><td>outgoing <span class="port">TCP 21120</span></td></tr>
   </tbody>
 </table>
 </div>
@@ -539,12 +539,12 @@ Restart-Service RustDesk
 </table>
 </div>
 <figure class="code"><figcaption>Build (PowerShell, on your PC)</figcaption><pre><code># offline: embed the RustDesk installer downloaded beforehand
-.\Build-Installer.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe `
+.\Pg20-Exe-Compiler.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe `
   -Server &lt;PUBLIC_ADDRESS&gt; -Key "&lt;SERVER_PUBLIC_KEY&gt;" `
   -Output .\dist\Support-Offline.exe
 
 # online: the same command without -InstallerFile
-.\Build-Installer.ps1 -Server &lt;PUBLIC_ADDRESS&gt; -Key "&lt;SERVER_PUBLIC_KEY&gt;" `
+.\Pg20-Exe-Compiler.ps1 -Server &lt;PUBLIC_ADDRESS&gt; -Key "&lt;SERVER_PUBLIC_KEY&gt;" `
   -Output .\dist\Support.exe</code></pre></figure>
 <p>At this stage (level 1), the password and the ID appear on the client's screen at the end: write them down. The next levels replace this manual step.</p>
 </section>
@@ -554,11 +554,11 @@ Restart-Service RustDesk
 <p>This level removes note-taking. The exe encrypts the password with your public key, writes the record to the USB key, and a tool on your PC reads it.</p>
 
 <h3>Your technician key</h3>
-<p><code>Setup-Technician.ps1</code> creates an RSA-2048 key pair. The private key stays in <code>%APPDATA%\…\technician.key</code>, protected by your Windows account (DPAPI). The public key, <code>technician.pub.xml</code>, is built into the exes. It is passed to <code>Build-Installer.ps1</code> with <code>-TechnicianPublicKey</code>.</p>
-<figure class="code"><figcaption>Backing up the private key</figcaption><pre><code>.\Setup-Technician.ps1                    # creates the key if it does not exist
-.\Setup-Technician.ps1 -ExportBackup      # displays the key: store it in a password manager
-.\Setup-Technician.ps1 -VerifyBackup      # checks that the pasted backup is complete
-.\Setup-Technician.ps1 -RestoreFromBackup # new PC or reinstalled Windows</code></pre></figure>
+<p><code>Pg20-Technicien-Configurer.ps1</code> creates an RSA-2048 key pair. The private key stays in <code>%APPDATA%\…\technician.key</code>, protected by your Windows account (DPAPI). The public key, <code>technician.pub.xml</code>, is built into the exes. It is passed to <code>Pg20-Exe-Compiler.ps1</code> with <code>-TechnicianPublicKey</code>.</p>
+<figure class="code"><figcaption>Backing up the private key</figcaption><pre><code>.\Pg20-Technicien-Configurer.ps1                    # creates the key if it does not exist
+.\Pg20-Technicien-Configurer.ps1 -ExportBackup      # displays the key: store it in a password manager
+.\Pg20-Technicien-Configurer.ps1 -VerifyBackup      # checks that the pasted backup is complete
+.\Pg20-Technicien-Configurer.ps1 -RestoreFromBackup # new PC or reinstalled Windows</code></pre></figure>
 <div class="note warn">
   <span class="label">The backup is mandatory</span>
   <p>DPAPI ties the key to your Windows profile. A reinstalled Windows or a lost profile makes all the records unreadable, unless you have the backup.</p>
@@ -667,7 +667,7 @@ ip saddr { &lt;RESEAU_LOCAL&gt;, &lt;RESEAU_WIREGUARD&gt; } tcp dport { 22, 9090
 <figure class="code"><figcaption>Test</figcaption><pre><code>curl -k https://&lt;PUBLIC_ADDRESS&gt;:21120/v1/ping
 # expected answer: {"ok": true}</code></pre></figure>
 <p>Finally, rebuild the exes with the technician key and the fingerprint:</p>
-<figure class="code"><figcaption>Rebuilding the exe</figcaption><pre><code>.\Build-Installer.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe `
+<figure class="code"><figcaption>Rebuilding the exe</figcaption><pre><code>.\Pg20-Exe-Compiler.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe `
   -Server &lt;PUBLIC_ADDRESS&gt; -Key "&lt;SERVER_PUBLIC_KEY&gt;" `
   -TechnicianPublicKey .\technician.pub.xml -InboxPin &lt;TLS_FINGERPRINT&gt; `
   -TermsFile .\conditions\conditions-YYYY-MM-DD.txt `
@@ -877,7 +877,7 @@ sequence:
 <p>Installing permanent access at someone's place without them having read it is a bad idea, legally and humanly. The exe can therefore display a text before installing anything, and keep the proof that the client accepted it. The text is yours: the repository provides only a <b>template</b> (<code>conditions\conditions-modele.txt</code>, in French, with a courtesy translation <code>conditions-modele.en.txt</code>), to be completed and reviewed by a professional in your country.</p>
 <ol class="steps">
   <li><b>You complete the text.</b> Copy the template as <code>conditions\conditions-YYYY-MM-DD.txt</code> and fill in the fields in square brackets (technician, address, e-mail, retention period, erasure delay). The first line, <code>Version : …</code>, identifies the version. <b>Keep every version a client has accepted</b>: it is the one their proof designates.</li>
-  <li><b>The build refuses an incomplete text.</b> As long as a field in square brackets remains, <code>Build-Installer.ps1</code> stops.</li>
+  <li><b>The build refuses an incomplete text.</b> As long as a field in square brackets remains, <code>Pg20-Exe-Compiler.ps1</code> stops.</li>
   <li><b>At launch</b>, the exe displays the text: the client ticks "I have read…" and types their name (3 characters at least). Refusing or closing the window: nothing is installed (exit code 20). In silent mode, the <code>/accept</code> option is mandatory (code 21 otherwise) and the proof records "accepted by parameter": this is then a statement by the technician, not by the client.</li>
   <li><b>The proof</b> travels in the encrypted record: PC time (UTC), typed name, name of the PC and of the Windows user, RustDesk ID, version of the text, SHA-256 fingerprint of the text, mode (window or parameter), seconds spent in the window. The server adds its own reception time, which does not depend on the client's clock. On the USB key, a separate file (<code>rustdesk-consents.csv</code>) plays the same role. The client keeps a copy of the accepted text in <code>C:\ProgramData\Pg20-Info\</code>.</li>
   <li><b>On your PC</b>, the proof is stored with the client. On validation, the tool writes a file <code>Documents\Pg20-Info-Preuves\Preuve-&lt;ID&gt;-&lt;date&gt;.txt</code> ("Preuve" means proof), with the accepted text found by its fingerprint in the <code>conditions\</code> folder. These files survive the deletion of the client.</li>
@@ -890,7 +890,7 @@ sequence:
 
 <section id="desinstaller">
 <h2>Uninstalling a client</h2>
-<p>Uninstalling RustDesk at a client's means removing the service, the program, the firewall rules and above all the configuration that RustDesk leaves behind: its ID and its keys. Without that, a reinstallation gets the same identity back and the server sees no new registration (see the limits). The <code>Uninstall-RustDeskFully</code> function of <code>Deploy-RustDesk.ps1</code> does all of this, checks at the end that nothing remains and writes a log in <code>C:\ProgramData\Pg20-Info\</code>. It can check the computer's ID before acting (<code>-ExpectedId</code>: it stops without touching anything on another computer) and simulate without erasing anything (<code>-DryRun</code>).</p>
+<p>Uninstalling RustDesk at a client's means removing the service, the program, the firewall rules and above all the configuration that RustDesk leaves behind: its ID and its keys. Without that, a reinstallation gets the same identity back and the server sees no new registration (see the limits). The <code>Uninstall-RustDeskFully</code> function of <code>Pg20-Client-Installation.ps1</code> does all of this, checks at the end that nothing remains and writes a log in <code>C:\ProgramData\Pg20-Info\</code>. It can check the computer's ID before acting (<code>-ExpectedId</code>: it stops without touching anything on another computer) and simulate without erasing anything (<code>-DryRun</code>).</p>
 <p>The "Uninstall…" button of the "Connect" window asks you to type the client's name, then chooses the method by itself.</p>
 
 <h3>Computer with the maintenance task: fully automatic</h3>
@@ -928,7 +928,7 @@ pg20-order-v1|&lt;id&gt;|uninstall|&lt;nonce&gt;|&lt;iat&gt;|&lt;exp&gt;</code><
   <thead><tr><th>Item</th><th>Value</th></tr></thead>
   <tbody>
     <tr><td>Scheduled task</td><td><code>Pg20-Info-Maintenance</code>, system account, hidden. Triggers: start-up (after 3 minutes) and every 30 minutes. Catch-up if the computer was off, one instance at a time, 30 minutes at most</td></tr>
-    <tr><td>Folder</td><td><code>C:\Program Files\Pg20-Info\Agent</code>, reserved to the system and administrators (inheritance cut: an ordinary user cannot modify the script). Contains <code>Pg20-Agent.ps1</code> and <code>agent.json</code> (server, certificate fingerprint, public key, installation date: no secret)</td></tr>
+    <tr><td>Folder</td><td><code>C:\Program Files\Pg20-Info\Agent</code>, reserved to the system and administrators (inheritance cut: an ordinary user cannot modify the script). Contains <code>Pg20-Client-Maintenance.ps1</code> and <code>agent.json</code> (server, certificate fingerprint, public key, installation date: no secret)</td></tr>
     <tr><td>Command</td><td><code>powershell.exe -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File …</code>. Neither "Bypass" nor a hidden window: these options look too much like malware to some antivirus programs</td></tr>
     <tr><td>Installation</td><td>Only if the terms have been accepted and the exe knows the server, the fingerprint and your public key. A failure does not stop the installation of RustDesk: the record says that the computer does not have the task</td></tr>
     <tr><td>Removal</td><td>After an uninstallation by order; if RustDesk is uninstalled another way, at the next run; <code>-Uninstall</code> removes it too</td></tr>
@@ -937,7 +937,7 @@ pg20-order-v1|&lt;id&gt;|uninstall|&lt;nonce&gt;|&lt;iat&gt;|&lt;exp&gt;</code><
 </div>
 <div class="note warn">
   <span class="label">It is a permanent component running as the system account</span>
-  <p>It can only uninstall and it is described in the terms, but it is code that you place at third parties'. Read <code>Pg20-Agent.ps1</code> before using it, test it first on a computer of your own, and be aware that an antivirus may flag it.</p>
+  <p>It can only uninstall and it is described in the terms, but it is code that you place at third parties'. Read <code>Pg20-Client-Maintenance.ps1</code> before using it, test it first on a computer of your own, and be aware that an antivirus may flag it.</p>
 </div>
 
 <h3>Computer without the task: guided procedure</h3>
@@ -1055,13 +1055,13 @@ sudo nft -f /etc/nftables.d/pg20.nft</code></pre></figure>
     <tr><td><code>docker-compose.yml</code>, <code>install.sh</code></td><td>RustDesk server (hbbs and hbbr)</td></tr>
     <tr><td><code>pg20-firewall.nft</code></td><td>The VM's firewall</td></tr>
     <tr><td><code>01-storage.sh</code>, <code>02-vm.sh</code>, <code>user-data.template.yaml</code></td><td>Creating the VM under Proxmox with cloud-init</td></tr>
-    <tr><td><code>Deploy-RustDesk.ps1</code></td><td>Script embedded in the exe: terms, installs, configures, encrypts, sends the record, complete uninstallation, installs the maintenance task</td></tr>
-    <tr><td><code>Pg20-Agent.ps1</code></td><td>Maintenance task installed at the client's: executes a signed uninstall order</td></tr>
+    <tr><td><code>Pg20-Client-Installation.ps1</code></td><td>Script embedded in the exe: terms, installs, configures, encrypts, sends the record, complete uninstallation, installs the maintenance task</td></tr>
+    <tr><td><code>Pg20-Client-Maintenance.ps1</code></td><td>Maintenance task installed at the client's: executes a signed uninstall order</td></tr>
     <tr><td><code>conditions\conditions-modele.txt</code>, <code>conditions-modele.en.txt</code></td><td>Template of the installation terms (French, and a courtesy translation in English)</td></tr>
-    <tr><td><code>Build-Installer.ps1</code>, <code>installer-src\Program.cs</code>, <code>app.manifest</code></td><td>Building the exe (C# launcher)</td></tr>
-    <tr><td><code>Setup-Technician.ps1</code>, <code>Pg20-Common.ps1</code></td><td>Technician key, encryption, DPAPI</td></tr>
-    <tr><td><code>Pg20-Clients.ps1</code>, <code>Pg20-Clients-ui.html</code>, <code>Pg20-Clients.cmd</code></td><td>Client address book, local page, quick window, watcher</td></tr>
-    <tr><td><code>Install-Watch.ps1</code>, <code>Install-Raccourcis.ps1</code></td><td>Watcher task and desktop icons</td></tr>
+    <tr><td><code>Pg20-Exe-Compiler.ps1</code>, <code>installer-src\Program.cs</code>, <code>app.manifest</code></td><td>Building the exe (C# launcher)</td></tr>
+    <tr><td><code>Pg20-Technicien-Configurer.ps1</code>, <code>Pg20-Commun.ps1</code></td><td>Technician key, encryption, DPAPI</td></tr>
+    <tr><td><code>Pg20-Clients-Carnet.ps1</code>, <code>Pg20-Clients-Carnet-ui.html</code>, <code>Pg20-Clients-Carnet.cmd</code></td><td>Client address book, local page, quick window, watcher</td></tr>
+    <tr><td><code>Pg20-Clients-Surveillance-Installer.ps1</code>, <code>Pg20-Clients-Raccourcis-Installer.ps1</code></td><td>Watcher task and desktop icons</td></tr>
     <tr><td><code>peers-export.py</code>, <code>peers-feed.py</code>, <code>inbox-receive.py</code>, <code>peers-forget.py</code></td><td>VM services</td></tr>
     <tr><td><code>pg20-*.service</code>, <code>*.timer</code>, <code>*.path</code>, <code>install-*.sh</code></td><td>systemd units and install scripts</td></tr>
     <tr><td><code>home-assistant\*.yaml</code></td><td>Sensor, secrets, automations, REST command</td></tr>

@@ -1,0 +1,58 @@
+﻿DÉPLOIEMENT PAR SCRIPT : installer le client Pg20 Info sur un ou plusieurs PC sans question
+==========================================================================================
+
+Quand l'utiliser : un client a plusieurs postes (bureau, cabinet, école) et vous ne voulez pas passer devant chacun avec la clé USB.
+Principe : vous fabriquez UN exe pour ce client, puis le script Pg20-Deploiement-Poste.ps1 le lance sur chaque poste, sans fenêtre ni question.
+
+1. AVANT TOUT : l'acceptation des conditions
+   Avec ce mode, personne ne voit la fenêtre des conditions : /accept déclare l'acceptation PAR PARAMÈTRE. La preuve du poste dira
+   « accepté par paramètre », sans nom de personne. Pour que ce soit valable :
+     - faites lire et accepter le texte (dossier conditions, version indiquée dans l'exe) par le client AVANT : devis, contrat ou courriel
+       de confirmation d'une personne habilitée à engager l'organisation ;
+     - gardez cette trace avec les preuves du client ;
+     - informez les utilisateurs des postes (RustDesk sera installé, vous pouvez vous connecter à leur poste).
+   Ces textes n'ont pas été relus par un juriste.
+
+2. FABRIQUER L'EXE DU CLIENT
+   powershell -ExecutionPolicy Bypass -File Pg20-Exe-Fabriquer.ps1 -Client "Dupont SA"
+   -> dist\clients\Dupont-SA\Pg20-Info-Support-Dupont-SA-Offline.exe  (RustDesk embarqué : rien à télécharger sur les postes)
+   Le nom du client est figé dans l'exe : toutes les fiches des postes tombent sous le même client dans le carnet.
+
+3. PRÉPARER LE PARTAGE (déploiement par stratégie de groupe)
+   Un dossier partagé en LECTURE pour le groupe « Ordinateurs du domaine » (et « Utilisateurs authentifiés »), par exemple
+   \\SERVEUR\Pg20$  (partage masqué), contenant :
+     - l'exe du client ;
+     - Pg20-Deploiement-Poste.ps1.
+   Ne mettez dans ce dossier que l'exe d'UN client : il contient la clé de votre serveur. Droits d'écriture : vous seul.
+
+4. STRATÉGIE DE GROUPE (GPO)
+   Console « Gestion de stratégie de groupe » -> nouvelle GPO liée à l'unité d'organisation des postes concernés :
+   Configuration ordinateur -> Stratégies -> Paramètres Windows -> Scripts (démarrage/arrêt) -> Démarrage -> onglet « Scripts PowerShell »
+     Nom du script : \\SERVEUR\Pg20$\Pg20-Deploiement-Poste.ps1
+     Paramètres du script : -Exe "\\SERVEUR\Pg20$\Pg20-Info-Support-Dupont-SA-Offline.exe"
+   Le script s'exécute au démarrage de chaque poste, sous le compte SYSTEM. Il attend le réseau (2 minutes au plus), n'installe qu'une fois
+   (un poste déjà installé avec ce même exe est laissé tranquille : vous pouvez laisser la GPO en place) et réinstalle si vous changez d'exe.
+   Un poste déjà démarré installe au prochain redémarrage (ou : gpupdate /force puis redémarrage).
+
+5. OUTIL DE GESTION À DISTANCE (RMM) ou lancement à la main
+   Lancer sur chaque poste, en administrateur (ou en SYSTEM pour un RMM), avec un exe copié sur le poste ou accessible :
+   powershell -NoProfile -ExecutionPolicy Bypass -File Pg20-Deploiement-Poste.ps1 -Exe "C:\Temp\Pg20-Info-Support-Dupont-SA-Offline.exe"
+   Options : -Force (réinstaller), -ExtraArgs /clean (réinstallation propre : efface d'abord un ancien RustDesk), -TimeoutSeconds 1800.
+   Si l'exe est dans le même dossier que le script et qu'il est seul, -Exe est inutile.
+
+6. APRÈS L'INSTALLATION
+   - Chaque poste envoie sa fiche chiffrée à votre serveur : elle arrive dans le carnet (Pg20-Clients-Carnet) comme « à valider », avec le nom du
+     client de l'exe et le nom de l'ordinateur. VALIDEZ-les un par un (ou depuis votre téléphone) : un poste n'est pas « suivi » avant.
+   - Journal sur chaque poste : C:\ProgramData\Pg20-Info\Deploiement\Deploiement.log (et etat.json : ce qui a été installé).
+   - Pas de fichier avec le mot de passe sur les postes : il part chiffré dans la fiche (le CSV n'est pas écrit en mode silencieux).
+
+7. CODES DE SORTIE du script (utiles pour un RMM)
+   0 installé ou déjà installé | 1 l'exe a échoué | 2 pas administrateur | 3 exe introuvable | 4 plusieurs exe (précisez -Exe)
+   5 délai dépassé | 20 conditions refusées | 21 conditions non acceptées.
+
+8. LIMITES, À SAVOIR
+   - L'exe n'est pas signé : Windows Defender SmartScreen ou un antivirus peut le bloquer. Autorisez-le (exception sur le dossier du partage ou
+     sur l'empreinte SHA-256 de l'exe) avant le déploiement. Un partage du domaine est en zone « Intranet » : pas d'avertissement SmartScreen.
+   - Testé ici avec un faux exe (installation, relance, nouvelle version, échec, délai, options). Le déploiement d'une vraie GPO sur un vrai
+     domaine n'a pas été essayé : faites-le d'abord sur UN poste de test (unité d'organisation à part).
+   - Un poste éteint ou hors réseau installera à son prochain démarrage sur le réseau de l'entreprise.

@@ -1,0 +1,24 @@
+# RustDesk : fermer la notification d'une fiche traitée (créée le 2026-10-05 dans Home Assistant, id rustdesk_fiche_traitee)
+# Quand une fiche n'est plus « à valider » sur le serveur (validée depuis le PC, depuis le téléphone, ou expirée), sa notification est fermée.
+# Le serveur retire l'annonce de la fiche dès qu'elle est validée, d'où que vienne la validation : c'est ce que lit le capteur.
+alias: "RustDesk : fermer la notification d'une fiche traitée"
+mode: queued
+max: 10
+triggers:
+  - trigger: state
+    entity_id: sensor.rustdesk_postes_enregistres
+    attribute: peers
+actions:
+  - variables:
+      old_ids: "{{ (trigger.from_state.attributes.peers | default([], true) | selectattr('pending_since', 'defined') | map(attribute='id') | list) if trigger.from_state is not none else [] }}"
+      new_ids: "{{ trigger.to_state.attributes.peers | default([], true) | selectattr('pending_since', 'defined') | map(attribute='id') | list }}"
+  - variables:
+      done_ids: "{{ old_ids | reject('in', new_ids) | list }}"
+  - repeat:
+      for_each: "{{ done_ids }}"
+      sequence:
+        - action: notify.mobile_app_<TELEPHONE>
+          data:
+            message: clear_notification
+            data:
+              tag: "rustdesk-fiche-{{ repeat.item }}"

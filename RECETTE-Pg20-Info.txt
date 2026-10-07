@@ -1,0 +1,111 @@
+﻿PG20 INFO - RECETTE SUR PC D'ESSAI (à faire avec les exes du 2026-10-06 soir)
+=================================================================================
+
+BUT
+  Vérifier en VRAI ce que je n'ai pu tester que par simulation. Les essais ci-dessous sont classés par
+  importance : R1 d'abord. Chaque essai dit quoi faire, quoi regarder, ce qui est attendu et quelle preuve garder.
+
+  Ce qui n'a JAMAIS tourné en vrai : l'éjection de la clé, la fermeture de l'Explorateur après l'UAC, un
+  petit écran, un compte non administrateur, l'exe en ligne, la tâche de maintenance au démarrage, un antivirus.
+
+RÈGLES
+  - Toujours sur un PC D'ESSAI (jamais votre PC : l'exe reconfigure RustDesk). Compte administrateur sauf R6.
+  - Téléphone : VPN WireGuard actif. Sur votre PC : Pg20-Clients ouvert ou la surveillance en tâche de fond
+    (en cas de doute, relancez Pg20-Clients-Surveillance-Installer.ps1 une fois avant de commencer ; sans risque).
+  - Avant de commencer, copiez Pg20-Diagnostic-Recette.ps1 et Pg20-Diagnostic-Recette.cmd sur le BUREAU du PC d'essai :
+    la clé va s'éjecter toute seule, le rapport s'écrira sur le Bureau.
+  - Après chaque essai, remettez le PC à zéro : désinstallation à distance depuis « Pg20 - Se connecter » >
+    « Désinstaller... » (c'est aussi un test, voir R7), ou, en administrateur :
+    .\Pg20-Info-Support-Offline.exe -Uninstall
+  - Gardez des PHOTOS ou captures d'écran des fenêtres (surtout si quelque chose est coupé, décalé ou inattendu).
+
+---------------------------------------------------------------------------------------------------------
+R1 - PC PROPRE, COMPTE ADMINISTRATEUR, EXE HORS LIGNE, DEPUIS LA CLÉ         (PRIORITÉ 1, environ 10 min)
+---------------------------------------------------------------------------------------------------------
+  Faire : ouvrir la clé dans l'Explorateur, double-clic sur Pg20-Info-Support-Offline.exe, « Oui » à l'UAC,
+          lire/cocher les conditions, taper un nom, « Accepter et installer », attendre le résumé, comparer le
+          code de contrôle avec le téléphone, « Valider » sur le téléphone.
+  Regarder et noter :
+    a. La fenêtre de l'Explorateur de la clé se ferme-t-elle juste après le « Oui » de l'UAC ?
+       (attendu : oui, en 1 à 2 secondes ; notez si elle reste ouverte)
+    b. Un petit écran « Démarrage de l'installation... » puis la fenêtre de progression, CENTRÉE sur l'écran ;
+       la barre avance sans reculer jusqu'à 100 %.
+    c. Le résumé : code de contrôle à 4 chiffres en grand, aucun texte coupé ni chevauché.
+    d. Après « Valider » : « La clé USB va être éjectée dans 4 s : vous pourrez ensuite la retirer », puis la
+       fenêtre se ferme toute seule.
+    e. Un petit message « La clé USB (H:) a été éjectée. Vous pouvez la retirer maintenant. » s'affiche (8 s), et la clé
+       DISPARAÎT de l'Explorateur (Windows peut afficher « Le matériel peut être retiré en toute
+       sécurité »). Ne la retirez qu'une fois cela constaté. Si Windows dit « périphérique utilisé » : notez le
+       message exact et ce qui était ouvert.
+    f. Sur votre PC : la fiche arrive validée, le client apparaît dans « Se connecter » avec son adresse Internet.
+  Preuves : photos de b, c, d ; rebrancher la clé, puis lancer Pg20-Diagnostic-Recette.cmd (depuis le Bureau, en
+            administrateur) ; le journal %TEMP%\Pg20-Info-Setup.log doit contenir « Fenêtre de l'Explorateur
+            fermée » et « Éjection de X: demandée » (le rapport les reprend).
+
+R2 - « NE PAS ÉJECTER »                                                  (après remise à zéro du PC, 10 min)
+  Faire : refaire R1 jusqu'à la validation ; pendant le décompte de 4 s, cliquer « Ne pas éjecter ».
+  Attendu : message « La clé USB reste branchée », la fenêtre RESTE ouverte jusqu'à « Fermer », la clé reste visible.
+
+R3 - « FERMER » PENDANT LE DÉCOMPTE
+  Faire : idem R1 ; pendant le décompte, cliquer « Fermer ».
+  Attendu : la clé s'éjecte tout de suite (sans attendre la fin des 4 s).
+
+R4 - FENÊTRE FERMÉE AVANT LA VALIDATION
+  Faire : idem R1 ; tant que la fenêtre dit « En attente de la validation », la fermer (Fermer ou la croix).
+          Valider ensuite depuis le téléphone, un peu plus tard.
+  Attendu : l'installation reste faite (RustDesk « Prêt »), la clé n'est PAS éjectée, la fiche se valide quand même.
+
+R5 - PORTABLE OU PETIT ÉCRAN / MISE À L'ÉCHELLE 125 OU 150 %        (si possible 1366 x 768)
+  Faire : R1 sur un portable (ou réglez Paramètres > Affichage > Échelle à 150 % sur le PC d'essai).
+  Regarder : fenêtre des conditions, progression, résumé : tout visible, boutons atteignables (au besoin
+             défilement), fenêtres centrées, aucun texte coupé. Photo de CHAQUE fenêtre.
+
+R6 - COMPTE NON ADMINISTRATEUR                                                     (essai délicat, 10 min)
+  Faire : ouvrir une session avec un compte standard ; double-clic sur l'exe ; Windows demande les
+          identifiants d'un administrateur ; les saisir ; poursuivre jusqu'à la validation.
+  Regarder : l'Explorateur de la clé se ferme-t-il ? la clé s'éjecte-t-elle à la fin ? le résumé s'affiche-t-il ?
+  Note : sous un autre compte, certaines parties (fermeture de la fenêtre, éjection) peuvent ne pas voir la clé.
+         Ce n'est pas grave mais je dois le savoir : décrivez exactement ce qui se passe.
+
+R7 - TÂCHE DE MAINTENANCE AU DÉMARRAGE, PUIS DÉSINSTALLATION À DISTANCE
+  Faire : après un R1 réussi, REDÉMARRER le PC d'essai, attendre 2 minutes sans rien lancer, lancer
+          Pg20-Diagnostic-Recette.cmd : « Dernier passage » de la tâche doit être APRÈS « Dernier démarrage du PC ».
+          Puis, depuis votre PC : « Pg20 - Se connecter » > « Désinstaller... » sur ce client ; chronométrer.
+  Attendu : le PC se désinstalle seul en moins de 3 minutes, sans rien afficher ; le client disparaît de votre
+            liste ; après coup : RustDesk absent, tâche absente, plus de dossier C:\Program Files\Pg20-Info.
+
+R8 - EXE EN LIGNE (Pg20-Info-Support.exe)                           (PC SANS RustDesk, avec accès à github.com)
+  Faire : R1 avec l'exe en ligne.
+  Attendu : le téléchargement se fait tout seul, même résultat que R1. En cas d'échec : fenêtre d'erreur avec
+            « Copier les détails » ; envoyez-moi ces détails et le rapport.
+
+R9 - ANTIVIRUS ET SMARTSCREEN                                        (PC avec ESET, ou le PC d'un vrai client)
+  Faire : R1 sur un PC protégé par un antivirus.
+  Noter : tout avertissement ou blocage (nom de l'antivirus, texte exact, capture), l'exception qu'il a fallu
+          ajouter. « Éditeur inconnu » de SmartScreen est NORMAL (l'exe n'est pas signé).
+
+R10 - RÉSEAU QUI BLOQUE LE PORT 21120 (facultatif)
+  Faire : R1 depuis un réseau qui bloque la sortie TCP 21120 (ou un pare-feu qui l'interdit).
+  Attendu : le résumé liste « Fiche non envoyée » dans « À noter » ET montre le mot de passe EN CLAIR ; la clé n'est
+            pas éjectée (pas de validation) ; la fiche est sur la clé.
+
+---------------------------------------------------------------------------------------------------------
+À ME RENVOYER
+---------------------------------------------------------------------------------------------------------
+  Pour chaque essai fait : OK ou PROBLÈME, la photo des fenêtres, et pour tout problème le fichier
+  Recette-AAAAMMJJ-HHMM.txt (Pg20-Diagnostic-Recette.cmd). Le rapport contient le nom du PC et de la session Windows,
+  jamais de mot de passe ni de clé.
+
+  Fiche de résultats (à cocher) :
+    R1  [ ] OK  [ ] Problème : ......................................................................
+    R2  [ ] OK  [ ] Problème : ......................................................................
+    R3  [ ] OK  [ ] Problème : ......................................................................
+    R4  [ ] OK  [ ] Problème : ......................................................................
+    R5  [ ] OK  [ ] Problème : ......................................................  (écran : ..... x .....  échelle : ..... %)
+    R6  [ ] OK  [ ] Problème : ......................................................................
+    R7  [ ] OK  [ ] Problème : ......................................................  (délai de désinstallation : ..... min)
+    R8  [ ] OK  [ ] Problème : ......................................................................
+    R9  [ ] OK  [ ] Problème : ......................................................  (antivirus : ....................)
+    R10 [ ] OK  [ ] Problème : ......................................................................
+
+  Ordre conseillé si vous avez peu de temps : R1 (avec les points a à f), puis R5, R7, R2/R3 sur le même PC.

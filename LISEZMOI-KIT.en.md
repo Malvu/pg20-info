@@ -13,9 +13,9 @@ Kit sanitised on 2026-10-03, updated on 2026-10-04 (terms, proof of acceptance, 
 |---|---|---|
 | `serveur-pg20-info\` | 1 | RustDesk server (docker-compose, `install.sh`, notes) |
 | `proxmox-setup\` | 1 | Optional, for Proxmox: storage (`01-storage.sh`), cloud-init VM (`02-vm.sh`, `user-data.template.yaml`), firewall (`pg20-firewall.nft`) |
-| `Deploy-RustDesk.ps1`, `Build-Installer.ps1`, `installer-src\` | 1 | Installation script and exe build |
-| `Setup-Technician.ps1`, `Pg20-Common.ps1`, `Pg20-Clients.*`, `Install-Watch.ps1`, `Install-Raccourcis.ps1` | 2 | Technician key, client address book (and signing of uninstall orders), background watcher, icons |
-| `Pg20-Agent.ps1` | 3 | Maintenance task installed by the exe at the client's: uninstalls RustDesk on a signed order. Embedded by `Build-Installer.ps1`; do not run it by hand |
+| `Pg20-Client-Installation.ps1`, `Pg20-Exe-Compiler.ps1`, `installer-src\` | 1 | Installation script and exe build |
+| `Pg20-Technicien-Configurer.ps1`, `Pg20-Commun.ps1`, `Pg20-Clients.*`, `Pg20-Clients-Surveillance-Installer.ps1`, `Pg20-Clients-Raccourcis-Installer.ps1` | 2 | Technician key, client address book (and signing of uninstall orders), background watcher, icons |
+| `Pg20-Client-Maintenance.ps1` | 3 | Maintenance task installed by the exe at the client's: uninstalls RustDesk on a signed order. Embedded by `Pg20-Exe-Compiler.ps1`; do not run it by hand |
 | `conditions\conditions-modele.txt`, `conditions-modele.en.txt` | 1 to 3 | Template of the installation terms that the client accepts on screen (French; courtesy translation in English) |
 | `proxmox-setup\pg20-feed\` | 3 | VM services: exporter, feed, receiver, forget service, with their systemd units and install scripts |
 | `home-assistant\` | 3 | Sensor, secrets, automations, REST command |
@@ -26,8 +26,8 @@ The folder layout is that of the original project: do not move files, scripts ca
 
 ## What is NOT in the kit
 
-- **`technician.pub.xml`**: this is the author's public key. Create yours with `.\Setup-Technician.ps1`, then back up the private key (`-ExportBackup`).
-- **The exes**: build them with `Build-Installer.ps1` (see below). None of the author's exes is provided, they contain his addresses.
+- **`technician.pub.xml`**: this is the author's public key. Create yours with `.\Pg20-Technicien-Configurer.ps1`, then back up the private key (`-ExportBackup`).
+- **The exes**: build them with `Pg20-Exe-Compiler.ps1` (see below). None of the author's exes is provided, they contain his addresses.
 - **The RustDesk installer**: download it yourself (see `redist\A-LIRE.txt`).
 - **The complete Home Assistant configuration**: only the blocks to add. The `pg20_valider_derniere` and `pg20_valider_et_accueil` scripts and the `pg20-info` dashboard are given as YAML in the tutorial.
 - **The author's automated tests.**
@@ -36,7 +36,7 @@ The folder layout is that of the original project: do not move files, scripts ca
 
 | Value | Where |
 |---|---|
-| `<IP_VM>` | `home-assistant\1-capteur-rest.yaml`, `home-assistant\5-rest-command-valider.yaml`, `proxmox-setup\02-vm.sh`, `proxmox-setup\pg20-feed\pg20-peers-feed.service` (examples in `Setup-Technician.ps1` and `serveur-pg20-info\LISEZMOI.md`) |
+| `<IP_VM>` | `home-assistant\1-capteur-rest.yaml`, `home-assistant\5-rest-command-valider.yaml`, `proxmox-setup\02-vm.sh`, `proxmox-setup\pg20-feed\pg20-peers-feed.service` (examples in `Pg20-Technicien-Configurer.ps1` and `serveur-pg20-info\LISEZMOI.md`) |
 | `<IP_PASSERELLE>` (gateway IP) | `proxmox-setup\pg20-firewall.nft`, `proxmox-setup\02-vm.sh` |
 | `<RESEAU_LOCAL>`, `<RESEAU_WIREGUARD>` (local network, WireGuard network) | `proxmox-setup\pg20-firewall.nft`, `proxmox-setup\pg20-feed\pg20-peers-feed.service` |
 | `<MAC_DE_LA_VM>` | `proxmox-setup\02-vm.sh` |
@@ -45,7 +45,7 @@ The folder layout is that of the original project: do not move files, scripts ca
 | `<DOSSIER_DU_PROJET>` (project folder) | `home-assistant\2-secrets.exemple.yaml` (example command) |
 | `__HASH__`, `__SSHKEY__` | `user-data.template.yaml`: filled in by `02-vm.sh` from `/root/pg20-setup/hash.txt` and `ssh.pub` |
 
-The public address, the server key and the TLS fingerprint are not written in any file of the kit: they are passed as arguments to `Build-Installer.ps1`.
+The public address, the server key and the TLS fingerprint are not written in any file of the kit: they are passed as arguments to `Pg20-Exe-Compiler.ps1`.
 
 `install-feed.sh`, `install-inbox.sh` and `install-forget.sh` refuse to continue while a `<...>` remains in `pg20-peers-feed.service`. `02-vm.sh` and `01-storage.sh` do the same for their own values.
 
@@ -62,15 +62,15 @@ These values are the author's choices, not secrets. Adapt them if yours differ.
 ## Building an exe (reminder)
 
 ```powershell
-.\Setup-Technician.ps1        # once: creates your key, writes technician.pub.xml
-.\Build-Installer.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe `
+.\Pg20-Technicien-Configurer.ps1        # once: creates your key, writes technician.pub.xml
+.\Pg20-Exe-Compiler.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe `
   -Server <PUBLIC_ADDRESS> -Key "<SERVER_PUBLIC_KEY>" `
   -TechnicianPublicKey .\technician.pub.xml -InboxPin <TLS_FINGERPRINT> `
   -TermsFile .\conditions\conditions-YYYY-MM-DD.txt `
   -Output .\dist\Support-Offline.exe
 ```
 
-`-TermsFile`: the text of the terms the client must accept before anything is installed. Copy `conditions\conditions-modele.txt` (or `.en.txt`) under a dated name, fill in every field in square brackets, **have it reviewed**, and keep every version you distribute: the proof of acceptance designates the text by its fingerprint. The build refuses a text that still contains a field in square brackets. With `-InboxPin` and `-TechnicianPublicKey`, the exe also embeds the maintenance task (`Pg20-Agent.ps1`); the build then requires a text that mentions it ("tâche de maintenance" or "maintenance task"). `-NoAgent` builds an exe without it: those computers are then uninstalled through the guided procedure.
+`-TermsFile`: the text of the terms the client must accept before anything is installed. Copy `conditions\conditions-modele.txt` (or `.en.txt`) under a dated name, fill in every field in square brackets, **have it reviewed**, and keep every version you distribute: the proof of acceptance designates the text by its fingerprint. The build refuses a text that still contains a field in square brackets. With `-InboxPin` and `-TechnicianPublicKey`, the exe also embeds the maintenance task (`Pg20-Client-Maintenance.ps1`); the build then requires a text that mentions it ("tâche de maintenance" or "maintenance task"). `-NoAgent` builds an exe without it: those computers are then uninstalled through the guided procedure.
 
 Without `-InstallerFile`, the exe downloads RustDesk at installation time. Without `-TechnicianPublicKey` and `-InboxPin`, you are at level 1 (no encrypted client record).
 

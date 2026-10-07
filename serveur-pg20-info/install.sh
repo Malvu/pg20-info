@@ -49,7 +49,7 @@ Adresse (serveur d'ID / relais) : ${RD_HOST}
 Clé publique                    : ${KEY}
 
 Construire l'exe Windows (sur votre PC) :
-  .\\Build-Installer.ps1 -InstallerFile .\\redist\\rustdesk-1.5.0-x86_64.exe -Server ${RD_HOST} -Key "${KEY}" -Output .\\dist\\Pg20-Info-Support.exe
+  .\\Pg20-Exe-Compiler.ps1 -InstallerFile .\\redist\\rustdesk-1.5.0-x86_64.exe -Server ${RD_HOST} -Key "${KEY}" -Output .\\dist\\Pg20-Info-Support.exe
 EOF
 
 echo

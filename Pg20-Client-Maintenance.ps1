@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Pg20 Info : tâche de maintenance installée avec RustDesk (compte système, toutes les 30 minutes, sans fenêtre).
+    Pg20 Info : tâche de maintenance installée avec RustDesk (compte système, toutes les 3 minutes, sans fenêtre).
 
 .DESCRIPTION
     Elle ne sait faire qu'UNE chose : si le technicien a demandé la désinstallation de ce poste, la faire. Ce n'est PAS un moyen d'exécuter
@@ -14,11 +14,11 @@
       4. seulement alors : désinstalle RustDesk et efface sa configuration, prévient le serveur (POST /v1/order-done), puis supprime cette tâche.
     Sans ordre, un passage ne fait que la demande de l'étape 2 et ne laisse aucune trace. Si RustDesk n'est plus installé, la tâche se supprime.
 
-    Installée par Deploy-RustDesk.ps1 (Install-MaintenanceAgent) dans « C:\Program Files\Pg20-Info\Agent », dossier réservé au système et aux
+    Installée par Pg20-Client-Installation.ps1 (Install-MaintenanceAgent) dans « C:\Program Files\Pg20-Info\Agent », dossier réservé au système et aux
     administrateurs (un utilisateur ordinaire ne peut pas le modifier), avec agent.json : serveur, empreinte du certificat, clé publique du
     technicien, date d'installation. Le journal (agent.log) est dans ce même dossier.
 
-    Le marqueur « __UNINSTALL_FUNCTION__ » ci-dessous est remplacé, à l'installation, par le texte de Uninstall-RustDeskFully (Deploy-RustDesk.ps1).
+    Le marqueur « __UNINSTALL_FUNCTION__ » ci-dessous est remplacé, à l'installation, par le texte de Uninstall-RustDeskFully (Pg20-Client-Installation.ps1).
 #>
 [CmdletBinding()]
 param(
@@ -99,7 +99,7 @@ function ConvertTo-OrderTime([string]$Text) {
         [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)
 }
 
-# Texte signé : identique, caractère pour caractère, à celui que produit New-UninstallOrder dans Pg20-Clients.ps1
+# Texte signé : identique, caractère pour caractère, à celui que produit New-UninstallOrder dans Pg20-Clients-Carnet.ps1
 function Get-OrderMessage($Order) {
     'pg20-order-v1|{0}|{1}|{2}|{3}|{4}' -f $Order.id, $Order.action, $Order.nonce, $Order.iat, $Order.exp
 }

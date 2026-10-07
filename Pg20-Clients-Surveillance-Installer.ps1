@@ -6,15 +6,15 @@
 .DESCRIPTION
     Crée la tâche planifiée « Pg20-Clients-Surveillance » : lancée à l'ouverture de votre session Windows, SANS fenêtre
     (conhost --headless), avec VOS droits (pas d'administrateur), une seule instance, relancée automatiquement en cas d'arrêt.
-    Elle exécute  Pg20-Clients.ps1 -Watch  : toutes les 20 s elle lit la clé USB si elle est branchée, relève les fiches du serveur,
+    Elle exécute  Pg20-Clients-Carnet.ps1 -Watch  : toutes les 20 s elle lit la clé USB si elle est branchée, relève les fiches du serveur,
     applique les validations faites depuis le téléphone, et note ses événements dans %APPDATA%\Pg20-Info\watch.log.
     Elle ne tourne que lorsque ce PC est allumé et joint le serveur (réseau local ou WireGuard) : sinon les fiches attendent
     sur le serveur, chiffrées, jusqu'à 14 jours.
 
 .EXAMPLE
-    .\Install-Watch.ps1            # installe et démarre
+    .\Pg20-Clients-Surveillance-Installer.ps1            # installe et démarre
 .EXAMPLE
-    .\Install-Watch.ps1 -Remove    # arrête et retire la tâche
+    .\Pg20-Clients-Surveillance-Installer.ps1 -Remove    # arrête et retire la tâche
 #>
 [CmdletBinding()]
 param(
@@ -25,10 +25,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $taskName = 'Pg20-Clients-Surveillance'
 $scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
-$target = Join-Path $scriptDir 'Pg20-Clients.ps1'
+$target = Join-Path $scriptDir 'Pg20-Clients-Carnet.ps1'
 
 function Stop-Watchers {
-    # Arrête les surveillances en cours (processus powershell lancés avec Pg20-Clients.ps1 -Watch)
+    # Arrête les surveillances en cours (processus powershell lancés avec Pg20-Clients-Carnet.ps1 -Watch)
     Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
         Where-Object { $_.CommandLine -match 'Pg20-Clients\.ps1' -and $_.CommandLine -match '\s-Watch(\s|$)' } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; "  processus $($_.ProcessId) arrêté" }
@@ -54,7 +54,7 @@ $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -Ru
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) `
     -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force `
-    -Description 'Pg20 Info : relève les fiches d''installation envoyées au serveur RustDesk et applique les validations du téléphone (Pg20-Clients.ps1 -Watch).' | Out-Null
+    -Description 'Pg20 Info : relève les fiches d''installation envoyées au serveur RustDesk et applique les validations du téléphone (Pg20-Clients-Carnet.ps1 -Watch).' | Out-Null
 Write-Host "[+] Tâche « $taskName » créée pour $user (à l'ouverture de session, sans fenêtre, sans droits administrateur)." -ForegroundColor Green
 
 if (-not $NoStart) {

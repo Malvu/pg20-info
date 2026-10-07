@@ -14,9 +14,7 @@
 # Page de validation (ajoutée ensuite) : script script.pg20_valider_derniere + dashboard « Pg20 Info » (url pg20-info, vue fiches : carte
 # Markdown qui affiche la fiche la plus récente à valider avec son code, et un bouton « Valider » qui lance le script). La notification
 # ouvre cette page au toucher (data.clickAction: /pg20-info/fiches) et garde son bouton « Valider » (visible une fois dépliée).
-# Version finale : UN seul bouton « Valider » (script.pg20_valider_et_accueil = valider + fermer la notification + écran d'accueil du téléphone
-# via command_activity, Microsoft Launcher). Le bouton de la notification valide aussi et ferme la notification.
-# Ces objets sont créés dans Home Assistant (Paramètres > Automatisations / Scripts / Tableaux de bord) : pas de fichier à coller.
+# Version finale : UN seul bouton « Valider » (script.pg20_valider_et_accueil = valider + fermer la notification + écran d'accueil du téléphone\n# via command_activity, Microsoft Launcher). Le bouton de la notification valide aussi et ferme la notification.\n# Ces objets sont créés dans Home Assistant (Paramètres > Automatisations / Scripts / Tableaux de bord) : pas de fichier à coller.
 # Le flux annonce une fiche (pending_*) jusqu'à sa validation ou 30 minutes, même une fois relevée par le PC.
 # Limites :
 # - pas de notification au premier chargement du capteur ni après une indisponibilité (les fiches déjà en attente ne sont pas ré-annoncées) ;

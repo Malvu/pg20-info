@@ -27,3 +27,8 @@ data/
 
 # Outils locaux
 .claude/
+
+# Réglages et logo propres au technicien : jamais publiés
+build.config.json
+branding/logo.*
+publication/

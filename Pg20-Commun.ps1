@@ -1,5 +1,5 @@
 ﻿# Fonctions communes aux outils du technicien Pg20 Info.
-# Chargé par Setup-Technician.ps1 et Pg20-Clients.ps1 :  . "$PSScriptRoot\Pg20-Common.ps1"
+# Chargé par Pg20-Technicien-Configurer.ps1 et Pg20-Clients-Carnet.ps1 :  . "$PSScriptRoot\Pg20-Commun.ps1"
 # Les secrets (clé privée, jeton, mots de passe) sont protégés par DPAPI : lisibles uniquement par votre compte Windows, sur ce PC.
 
 function Get-Pg20Dir {
@@ -25,8 +25,8 @@ function Get-MissingKeyMessage {
     $p = Join-Path (Get-Pg20Dir) 'technician.key'
     $elev = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
     "Clé privée introuvable.`n  Compte  : $([Security.Principal.WindowsIdentity]::GetCurrent().Name)$(if ($elev) { '  (fenêtre ouverte EN ADMINISTRATEUR)' })`n  Cherchée dans : $p`n" +
-    "  La clé est liée au compte Windows qui a lancé Setup-Technician.ps1 : ouvrez PowerShell avec CE compte, sans « Exécuter en tant qu'administrateur » (Win+R, tapez powershell, Entrée),`n" +
-    "  ou, si la clé a été perdue, restaurez-la : .\Setup-Technician.ps1 -RestoreFromBackup"
+    "  La clé est liée au compte Windows qui a lancé Pg20-Technicien-Configurer.ps1 : ouvrez PowerShell avec CE compte, sans « Exécuter en tant qu'administrateur » (Win+R, tapez powershell, Entrée),`n" +
+    "  ou, si la clé a été perdue, restaurez-la : .\Pg20-Technicien-Configurer.ps1 -RestoreFromBackup"
 }
 
 function Get-TechPrivateKeyXml {
@@ -47,7 +47,7 @@ function Unprotect-FromTech([string]$Base64) {
     finally { $rsa.Dispose() }
 }
 
-# Ouvre une fiche reçue du serveur (voir New-Envelope dans Deploy-RustDesk.ps1) : RSA-OAEP | IV (16) | AES-256-CBC | HMAC-SHA256 (32).
+# Ouvre une fiche reçue du serveur (voir New-Envelope dans Pg20-Client-Installation.ps1) : RSA-OAEP | IV (16) | AES-256-CBC | HMAC-SHA256 (32).
 # Le HMAC est vérifié AVANT tout déchiffrement : une fiche fabriquée ou altérée est refusée (exception « fiche invalide »).
 function Unprotect-Envelope([string]$Base64) {
     $xml = Get-TechPrivateKeyXml
@@ -88,9 +88,9 @@ function Unprotect-Envelope([string]$Base64) {
 
 # ---------------------------------------------------------------- Ordres de désinstallation signés
 # Un ordre dit « désinstalle RustDesk du poste <ID> » ; il est signé (RSA-SHA256) avec la clé privée du technicien, que seul ce PC possède. Les postes
-# équipés de la tâche de maintenance (Pg20-Agent.ps1) ne l'exécutent qu'après avoir vérifié la signature avec la clé publique reçue à l'installation :
+# équipés de la tâche de maintenance (Pg20-Client-Maintenance.ps1) ne l'exécutent qu'après avoir vérifié la signature avec la clé publique reçue à l'installation :
 # le serveur qui transporte l'ordre ne peut donc ni en fabriquer un, ni en modifier un. Le préfixe « pg20-order-v1| » du texte signé sépare cet usage
-# de la clé de tout autre. Ce texte doit rester identique, caractère pour caractère, à Get-OrderMessage dans Pg20-Agent.ps1.
+# de la clé de tout autre. Ce texte doit rester identique, caractère pour caractère, à Get-OrderMessage dans Pg20-Client-Maintenance.ps1.
 function Get-OrderMessage($Order) {
     'pg20-order-v1|{0}|{1}|{2}|{3}|{4}' -f $Order.id, $Order.action, $Order.nonce, $Order.iat, $Order.exp
 }

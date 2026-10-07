@@ -1,0 +1,10 @@
+DOSSIER DE LA MARQUE
+====================
+
+Deposez ici le logo de votre marque sous le nom :  logo.png
+
+  - Format PNG, de preference carre, 256 x 256 pixels ou plus (1024 au plus), fond transparent si possible.
+  - Il est affiche en tete de la fenetre d'acceptation des conditions, et l'icone de l'exe en est tiree automatiquement.
+  - Pour une icone differente du logo, deposez aussi icone.ico et indiquez-la dans build.config.json (brand > icon).
+
+Sans logo.png, les exes sont construits avec le nom de la marque en texte seulement et l'icone par defaut.

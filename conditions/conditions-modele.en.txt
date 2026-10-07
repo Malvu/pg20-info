@@ -1,4 +1,4 @@
-Version : 2026-10-04c
+Version : 2026-10-05
 
 [TO ADAPT: this is an English TRANSLATION of conditions-modele.txt (the French original, which is the reference). It has not been reviewed by a lawyer and is not legal advice. Fill in every field in square brackets, have the text reviewed for your country, then delete this paragraph. The exe's own screens and messages remain in French.]
 
@@ -11,8 +11,8 @@ REMOTE ACCESS INSTALLATION TERMS
 - RustDesk, a remote control program. It is installed as a Windows service: it starts with the computer, even when nobody is logged in.
 - A configuration that connects it to the technician's server, not to a public one.
 - A permanent password, specific to this computer, set during installation.
-- A maintenance task (name: "Pg20-Info-Maintenance", in the Windows Task Scheduler). It runs without a window at startup, then every 30 minutes, and asks the technician's server whether the technician has ordered this computer to be uninstalled. It can do only that: uninstall RustDesk and erase its configuration, and only on an order signed by the technician. It reads none of your files, installs nothing else and gives no access. It removes itself together with RustDesk.
-[TO ADAPT: without the maintenance task (option -NoAgent of Build-Installer.ps1), delete the "maintenance task" bullet above, the sentence "The technician sends the uninstall order only..." in section 3, and the passages that mention it in sections 4, 5 and 6, as well as this line.]
+- A maintenance task (name: "Pg20-Info-Maintenance", in the Windows Task Scheduler). It runs without a window at startup, then every 3 minutes, and asks the technician's server whether the technician has ordered this computer to be uninstalled. It can do only that: uninstall RustDesk and erase its configuration, and only on an order signed by the technician. It reads none of your files, installs nothing else and gives no access. It removes itself together with RustDesk.
+[TO ADAPT: without the maintenance task (option -NoAgent of Pg20-Exe-Compiler.ps1), delete the "maintenance task" bullet above, the sentence "The technician sends the uninstall order only..." in section 3, and the passages that mention it in sections 4, 5 and 6, as well as this line.]
 
 3. Who can connect, and when
 Only the technician, holding this computer's password, can connect to it. The technician connects only while you are present in front of the screen, for an intervention agreed with you, and undertakes never to connect in your absence.
@@ -24,8 +24,8 @@ To find this computer again, the technician keeps: the name you give during inst
 This data is used only to support you. It is kept [RETENTION PERIOD], then erased.
 
 5. What you can do at any time
-- Ask for the complete uninstallation of RustDesk and the erasure of your record held by the technician, by writing to [EMAIL]. The technician undertakes to do so within [DELAY]. The technician then sends the uninstall order: the computer uninstalls itself, with nothing for you to do and no message on screen, within half an hour after it starts, once connected to the internet.
-- Uninstall RustDesk yourself (Settings, Apps): the maintenance task then removes itself within half an hour. Also ask for your record to be erased.
+- Ask for the complete uninstallation of RustDesk and the erasure of your record held by the technician, by writing to [EMAIL]. The technician undertakes to do so within [DELAY]. The technician then sends the uninstall order: the computer uninstalls itself, with nothing for you to do and no message on screen, within minutes: 3 minutes if the computer is on and connected to the internet, otherwise shortly after its next start.
+- Uninstall RustDesk yourself (Settings, Apps): the maintenance task then removes itself within minutes. Also ask for your record to be erased.
 - Ask what data about you is kept, and have it corrected or erased, according to the applicable data protection law.
 
 6. Acceptance

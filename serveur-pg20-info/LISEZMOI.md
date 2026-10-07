@@ -32,7 +32,7 @@ Vérifications utiles :
 La commande exacte est dans `client-settings.txt`. En résumé :
 
 ```powershell
-.\Build-Installer.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe -Server VOTRE_IP -Key "VOTRE_CLE" -Output .\dist\Pg20-Info-Support.exe
+.\Pg20-Exe-Compiler.ps1 -InstallerFile .\redist\rustdesk-1.5.0-x86_64.exe -Server VOTRE_IP -Key "VOTRE_CLE" -Output .\dist\Pg20-Info-Support.exe
 ```
 
 ## 4. À savoir
