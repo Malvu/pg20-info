@@ -273,7 +273,7 @@ footer p { max-width: 76ch; }
   <li><b>Your PC fetches the record</b>, decrypts it with a private key that never leaves your PC, and applies the validation.</li>
   <li><b>A desktop icon "Connect"</b> lists the validated clients. One click opens RustDesk with the ID and password already filled in.</li>
 </ol>
-<p>The same address book lets you uninstall RustDesk at a client's with one click (the computer uninstalls itself, within half an hour, with nothing for the client to do) and delete a client everywhere in one gesture: PC, USB key and server.</p>
+<p>The same address book lets you uninstall RustDesk at a client's with one click (the computer uninstalls itself, within 3 minutes if it is on and connected (otherwise shortly after its next start-up), with nothing for the client to do) and delete a client everywhere in one gesture: PC, USB key and server.</p>
 <div class="note info">
   <span class="label">What it does not do</span>
   <ul>
@@ -294,7 +294,7 @@ footer p { max-width: 76ch; }
     <h4>At the client's</h4>
     <div class="node">Installer exe<small>installs, configures, encrypts the record</small></div>
     <div class="node">RustDesk<small>Windows service, permanent password</small></div>
-    <div class="node">Maintenance task<small>uninstalls on a signed order, every 30 min</small></div>
+    <div class="node">Maintenance task<small>uninstalls on a signed order, every 3 min</small></div>
   </div>
   <div class="wire">Internet<br>TCP 21115-21117<br>UDP 21116<br>TCP 21120</div>
   <div class="zone core">
@@ -896,12 +896,12 @@ sequence:
 <h3>Computer with the maintenance task: fully automatic</h3>
 <ol class="steps">
   <li><b>You click and type the client's name.</b> Your PC signs an order "uninstall computer &lt;ID&gt;" with your private key and drops it on the feed (<code>POST /orders</code>).</li>
-  <li><b>The client's computer reads the orders</b> at start-up then every 30 minutes (scheduled task, system account, no window). It asks the receiver <code>GET /v1/order?id=&lt;its ID&gt;</code>.</li>
+  <li><b>The client's computer reads the orders</b> at start-up then every 3 minutes (scheduled task, system account, no window). It asks the receiver <code>GET /v1/order?id=&lt;its ID&gt;</code>.</li>
   <li><b>It verifies the order before anything else</b>: signature (with the public key received at installation), action "uninstall", ID identical to its own, not expired, not dated in the future, not older than the installation of the task (anti-replay). Otherwise it does nothing.</li>
   <li><b>It uninstalls</b> (same function as above, which re-checks the ID), informs the server (<code>POST /v1/order-done</code>), then deletes its own task and folder. If the network is down at that moment, it keeps a marker and retries at each run.</li>
   <li><b>Your PC sees the acknowledgement</b> at its next synchronisation, removes the client from the list, the USB key and the server, and shows a Windows balloon. The client had nothing to do or see.</li>
 </ol>
-<p>You can cancel as long as the computer has not executed the order (the same button offers it, and so does the page). An order never executed is forgotten after 30 days, and deleting the client or receiving a new record for its ID cancels the pending order. To avoid waiting 30 minutes: on the computer, Task Scheduler, <code>Pg20-Info-Maintenance</code>, Run.</p>
+<p>You can cancel as long as the computer has not executed the order (the same button offers it, and so does the page). An order never executed is forgotten after 30 days, and deleting the client or receiving a new record for its ID cancels the pending order. To avoid waiting for the 3-minute cycle: on the computer, Task Scheduler, <code>Pg20-Info-Maintenance</code>, Run.</p>
 
 <h3>The signed order</h3>
 <p>The same RSA key pair is used to decrypt the records and to sign the orders. The signed text starts with a prefix that separates these two uses. Dates are in UTC, and the computer reads the server's time (<code>Date</code> header) rather than its own clock, which may be wrong.</p>
@@ -927,7 +927,7 @@ pg20-order-v1|&lt;id&gt;|uninstall|&lt;nonce&gt;|&lt;iat&gt;|&lt;exp&gt;</code><
 <table>
   <thead><tr><th>Item</th><th>Value</th></tr></thead>
   <tbody>
-    <tr><td>Scheduled task</td><td><code>Pg20-Info-Maintenance</code>, system account, hidden. Triggers: start-up (after 3 minutes) and every 30 minutes. Catch-up if the computer was off, one instance at a time, 30 minutes at most</td></tr>
+    <tr><td>Scheduled task</td><td><code>Pg20-Info-Maintenance</code>, system account, hidden. Triggers: start-up (after 3 minutes) and every 3 minutes. Catch-up if the computer was off, one instance at a time, 30 minutes at most per run</td></tr>
     <tr><td>Folder</td><td><code>C:\Program Files\Pg20-Info\Agent</code>, reserved to the system and administrators (inheritance cut: an ordinary user cannot modify the script). Contains <code>Pg20-Client-Maintenance.ps1</code> and <code>agent.json</code> (server, certificate fingerprint, public key, installation date: no secret)</td></tr>
     <tr><td>Command</td><td><code>powershell.exe -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File …</code>. Neither "Bypass" nor a hidden window: these options look too much like malware to some antivirus programs</td></tr>
     <tr><td>Installation</td><td>Only if the terms have been accepted and the exe knows the server, the fingerprint and your public key. A failure does not stop the installation of RustDesk: the record says that the computer does not have the task</td></tr>
@@ -1012,7 +1012,7 @@ pg20-order-v1|&lt;id&gt;|uninstall|&lt;nonce&gt;|&lt;iat&gt;|&lt;exp&gt;</code><
   <li>No "online" indicator: hbbs does not publish this information.</li>
   <li>A single technician and a single key.</li>
   <li>A regenerated TLS certificate forces you to rebuild the exes.</li>
-  <li><b>Automatic uninstallation is not instantaneous</b>: the computer polls the server every 30 minutes, or at its next start-up if it was off. It works only on computers installed with the maintenance task; the others go through the guided procedure.</li>
+  <li><b>Automatic uninstallation is not instantaneous</b>: the computer polls the server every 3 minutes, or at its next start-up if it was off. At this interval the receiver accepts 60 order requests per 10 minutes and per public address: about 18 computers per site before it starts limiting. It works only on computers installed with the maintenance task; the others go through the guided procedure.</li>
   <li>A compromised server could replay an order that was already signed and then cancelled for a computer (effect: uninstalling RustDesk). Orders are valid for 30 days.</li>
   <li>The terms text is a template: to be completed and reviewed. The screens of the exe and of the scripts are in French.</li>
 </ul>

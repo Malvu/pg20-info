@@ -267,7 +267,7 @@ footer p { max-width: 76ch; }
   <li><b>Votre PC relève la fiche</b>, la déchiffre avec une clé privée qui ne quitte jamais votre PC, et applique la validation.</li>
   <li><b>Une icône du bureau « Se connecter »</b> liste les clients validés. Un clic ouvre RustDesk avec l'ID et le mot de passe déjà remplis.</li>
 </ol>
-<p>Le même carnet permet de désinstaller RustDesk chez un client d'un clic (le poste se désinstalle tout seul, dans la demi-heure, sans que le client ait rien à faire) et de supprimer un client partout d'un seul geste : PC, clé USB et serveur.</p>
+<p>Le même carnet permet de désinstaller RustDesk chez un client d'un clic (le poste se désinstalle tout seul, dans les 3 minutes s'il est allumé et connecté (sinon peu après son prochain démarrage), sans que le client ait rien à faire) et de supprimer un client partout d'un seul geste : PC, clé USB et serveur.</p>
 <div class="note info">
   <span class="label">Ce que ça ne fait pas</span>
   <ul>
@@ -288,7 +288,7 @@ footer p { max-width: 76ch; }
     <h4>Chez le client</h4>
     <div class="node">Exe d'installation<small>installe, règle, chiffre la fiche</small></div>
     <div class="node">RustDesk<small>service Windows, mot de passe permanent</small></div>
-    <div class="node">Tâche de maintenance<small>désinstalle sur ordre signé, toutes les 30 min</small></div>
+    <div class="node">Tâche de maintenance<small>désinstalle sur ordre signé, toutes les 3 min</small></div>
   </div>
   <div class="wire">Internet<br>TCP 21115-21117<br>UDP 21116<br>TCP 21120</div>
   <div class="zone core">
@@ -890,12 +890,12 @@ sequence:
 <h3>Poste avec la tâche de maintenance : tout est automatique</h3>
 <ol class="steps">
   <li><b>Vous cliquez et tapez le nom du client.</b> Votre PC signe un ordre « désinstaller le poste &lt;ID&gt; » avec votre clé privée et le dépose sur le flux (<code>POST /orders</code>).</li>
-  <li><b>Le poste du client lit les ordres</b> au démarrage puis toutes les 30 minutes (tâche planifiée, compte système, sans fenêtre). Il demande au receveur <code>GET /v1/order?id=&lt;son ID&gt;</code>.</li>
+  <li><b>Le poste du client lit les ordres</b> au démarrage puis toutes les 3 minutes (tâche planifiée, compte système, sans fenêtre). Il demande au receveur <code>GET /v1/order?id=&lt;son ID&gt;</code>.</li>
   <li><b>Il vérifie l'ordre avant tout</b> : signature (avec la clé publique reçue à l'installation), action « uninstall », ID identique au sien, pas périmé, pas daté du futur, pas antérieur à l'installation de la tâche (anti-rejeu). Sinon il ne fait rien.</li>
   <li><b>Il désinstalle</b> (même fonction que ci-dessus, qui revérifie l'ID), prévient le serveur (<code>POST /v1/order-done</code>), puis supprime sa propre tâche et son dossier. Si le réseau est coupé à ce moment, il garde un repère et retente à chaque passage.</li>
   <li><b>Votre PC voit l'accusé</b> à sa prochaine synchronisation, retire le client de la liste, de la clé USB et du serveur, et affiche une bulle Windows. Le client n'a rien eu à faire ni à voir.</li>
 </ol>
-<p>Vous pouvez annuler tant que le poste n'a pas exécuté l'ordre (le même bouton le propose, la page aussi). Un ordre jamais exécuté est oublié au bout de 30 jours, et supprimer le client ou recevoir une nouvelle fiche pour son ID annule l'ordre en attente. Pour ne pas attendre 30 minutes : sur le poste, Planificateur de tâches, <code>Pg20-Info-Maintenance</code>, Exécuter.</p>
+<p>Vous pouvez annuler tant que le poste n'a pas exécuté l'ordre (le même bouton le propose, la page aussi). Un ordre jamais exécuté est oublié au bout de 30 jours, et supprimer le client ou recevoir une nouvelle fiche pour son ID annule l'ordre en attente. Pour ne pas attendre les 3 minutes : sur le poste, Planificateur de tâches, <code>Pg20-Info-Maintenance</code>, Exécuter.</p>
 
 <h3>L'ordre signé</h3>
 <p>La même paire de clés RSA sert à déchiffrer les fiches et à signer les ordres. Le texte signé commence par un préfixe qui sépare ces deux usages. Les dates sont en UTC, et le poste lit l'heure du serveur (en-tête <code>Date</code>) plutôt que sa propre horloge, qui peut être fausse.</p>
@@ -921,7 +921,7 @@ pg20-order-v1|&lt;id&gt;|uninstall|&lt;nonce&gt;|&lt;iat&gt;|&lt;exp&gt;</code><
 <table>
   <thead><tr><th>Élément</th><th>Valeur</th></tr></thead>
   <tbody>
-    <tr><td>Tâche planifiée</td><td><code>Pg20-Info-Maintenance</code>, compte système, cachée. Déclencheurs : démarrage (après 3 minutes) et toutes les 30 minutes. Rattrapage si le poste était éteint, une instance à la fois, 30 minutes au plus</td></tr>
+    <tr><td>Tâche planifiée</td><td><code>Pg20-Info-Maintenance</code>, compte système, cachée. Déclencheurs : démarrage (après 3 minutes) et toutes les 3 minutes. Rattrapage si le poste était éteint, une instance à la fois, 30 minutes au plus par exécution</td></tr>
     <tr><td>Dossier</td><td><code>C:\Program Files\Pg20-Info\Agent</code>, réservé au système et aux administrateurs (héritage coupé : un utilisateur ordinaire ne peut pas modifier le script). Contient <code>Pg20-Client-Maintenance.ps1</code> et <code>agent.json</code> (serveur, empreinte du certificat, clé publique, date d'installation : aucun secret)</td></tr>
     <tr><td>Commande</td><td><code>powershell.exe -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File …</code>. Ni « Bypass » ni fenêtre cachée : ces options ressemblent trop à un logiciel malveillant pour certains antivirus</td></tr>
     <tr><td>Installation</td><td>Seulement si les conditions ont été acceptées et si l'exe connaît le serveur, l'empreinte et votre clé publique. Un échec n'arrête pas l'installation de RustDesk : la fiche indique que le poste n'a pas la tâche</td></tr>
@@ -1006,7 +1006,7 @@ pg20-order-v1|&lt;id&gt;|uninstall|&lt;nonce&gt;|&lt;iat&gt;|&lt;exp&gt;</code><
   <li>Pas d'indicateur « en ligne » : hbbs ne publie pas cette information.</li>
   <li>Un seul technicien et une seule clé.</li>
   <li>Un certificat TLS régénéré oblige à reconstruire les exes.</li>
-  <li><b>La désinstallation automatique n'est pas instantanée</b> : le poste interroge le serveur toutes les 30 minutes, ou à son prochain démarrage s'il était éteint. Elle ne fonctionne que sur les postes installés avec la tâche de maintenance ; les autres passent par le parcours guidé.</li>
+  <li><b>La désinstallation automatique n'est pas instantanée</b> : le poste interroge le serveur toutes les 3 minutes, ou à son prochain démarrage s'il était éteint. À cet intervalle, le receveur accepte 60 demandes d'ordre par tranche de 10 minutes et par adresse publique : environ 18 postes par site avant d'être limité. Elle ne fonctionne que sur les postes installés avec la tâche de maintenance ; les autres passent par le parcours guidé.</li>
   <li>Un serveur compromis pourrait rejouer un ordre déjà signé puis annulé pour un poste (effet : désinstaller RustDesk). Les ordres sont valables 30 jours.</li>
   <li>Le texte des conditions est un modèle : à compléter et à faire relire. Les écrans de l'exe et des scripts sont en français.</li>
 </ul>

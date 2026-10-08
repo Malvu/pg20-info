@@ -1,5 +1,11 @@
 # Nouveautés Pg20 Info
 
+## 2026-10-08 | Tutos corrigés : tâche de maintenance toutes les 3 minutes
+
+- Tutos FR et EN : l'intervalle de la tâche de maintenance est de 3 minutes, et non 30 (désinstallation automatique, schéma d'architecture, déclencheurs de la tâche, limites).
+- Limite du receveur précisée : 60 demandes d'ordre par tranche de 10 minutes et par adresse publique, soit environ 18 postes par site à cet intervalle.
+- Les tutos utilisent partout les nouveaux noms de scripts (`Pg20-Domaine-Action`).
+
 ## 2026-10-07 | Client léger, ports protégés, déploiement par script, nouveaux noms de scripts
 
 - Client léger : dépannage sans rien installer (un seul exe, RustDesk tourne depuis un dossier temporaire, tout est effacé à la fin).
