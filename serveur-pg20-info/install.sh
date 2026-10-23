@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installe / met à jour le serveur RustDesk "Pg20 Info" (hbbs + hbbr) avec Docker.
+# Installe / met à jour le serveur RustDesk "Info Pg20" (hbbs + hbbr) avec Docker.
 # À lancer sur la machine qui hébergera le serveur (NAS, Raspberry, mini-PC Linux...).
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -17,7 +17,7 @@ else die "Docker Compose est introuvable."; fi
 touch .env
 RD_HOST="$(grep -E '^RD_HOST=' .env | head -n1 | cut -d= -f2- || true)"
 if [ -z "$RD_HOST" ]; then
-  read -r -p "Adresse publique du serveur Pg20 Info (IP fixe ou nom de domaine) : " RD_HOST
+  read -r -p "Adresse publique du serveur Info Pg20 (IP fixe ou nom de domaine) : " RD_HOST
 fi
 RD_HOST="$(printf '%s' "$RD_HOST" | tr -d '[:space:]')"
 [ -n "$RD_HOST" ] || die "L'adresse est obligatoire."
@@ -44,7 +44,7 @@ $DC ps
 
 # --- Récapitulatif pour les clients -----------------------------------------------------------
 cat > client-settings.txt <<EOF
-Serveur RustDesk "Pg20 Info"
+Serveur RustDesk "Info Pg20"
 Adresse (serveur d'ID / relais) : ${RD_HOST}
 Clé publique                    : ${KEY}
 
@@ -53,7 +53,7 @@ Construire l'exe Windows (sur votre PC) :
 EOF
 
 echo
-ok "Serveur Pg20 Info démarré."
+ok "Serveur Info Pg20 démarré."
 echo "    Adresse : ${RD_HOST}"
 echo "    Clé     : ${KEY}"
 echo "    (enregistrés dans client-settings.txt)"

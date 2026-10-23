@@ -49,7 +49,7 @@ param(
     [switch]$CleanReinstall,  # fige « réinstallation propre » dans l'exe : un RustDesk déjà relié à votre serveur est effacé avant l'installation (nouvelle identité)
     [switch]$NoAgent,         # n'embarque pas la tâche de maintenance (désinstallation à distance sur ordre signé) : sans elle, la désinstallation se fait à la main
     [switch]$Light,           # CLIENT LÉGER : fige « -Leger » (session de dépannage sans installation) ; l'exe ne demande PAS les droits administrateur
-    [string]$BrandName,       # marque du technicien (ex. « Pg20 Info ») : titre de la console, en-tête de la fenêtre d'acceptation, propriétés de l'exe
+    [string]$BrandName,       # marque du technicien (ex. « Info Pg20 ») : titre de la console, en-tête de la fenêtre d'acceptation, propriétés de l'exe
     [string]$CompanyName,     # société affichée dans les propriétés de l'exe (par défaut : la marque)
     [string]$IconFile,        # icône .ico de l'exe (explorateur, barre des tâches)
     [string]$LogoFile,        # logo .png affiché en tête de la fenêtre d'acceptation

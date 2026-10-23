@@ -7,7 +7,7 @@ timezone: Europe/Zurich
 
 users:
   - name: pg20admin
-    gecos: Pg20 Info admin
+    gecos: Info Pg20 admin
     groups: [sudo]
     shell: /bin/bash
     lock_passwd: false

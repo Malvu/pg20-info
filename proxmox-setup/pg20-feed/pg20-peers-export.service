@@ -1,5 +1,5 @@
 [Unit]
-Description=Pg20 Info : export de la liste des postes RustDesk (lecture de la base hbbs)
+Description=Info Pg20 : export de la liste des postes RustDesk (lecture de la base hbbs)
 
 [Service]
 Type=oneshot

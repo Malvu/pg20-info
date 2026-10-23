@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Pg20 Info : un PC peut-il construire et recevoir les exes ? Diagnostic en LECTURE SEULE (rien n'est installé, créé ni modifié).
+    Info Pg20 : un PC peut-il construire et recevoir les exes ? Diagnostic en LECTURE SEULE (rien n'est installé, créé ni modifié).
 
 .DESCRIPTION
     À lancer sur un PC de test (Windows 10, Windows 11...) ou chez un client, de préférence en administrateur (certaines lectures en ont besoin) :
@@ -30,8 +30,8 @@ function Add-Line([string]$Level, [string]$Label, [string]$Detail = '') {
 function Section([string]$Title) { $script:lines.Add(''); $script:lines.Add("== $Title"); Write-Host ''; Write-Host "== $Title" -ForegroundColor Cyan }
 function Try-Get([scriptblock]$Block) { try { & $Block } catch { $null } }
 
-Write-Host "Pg20 Info : diagnostic de compatibilité (lecture seule)" -ForegroundColor Cyan
-$script:lines.Add('Pg20 Info : diagnostic de compatibilité (lecture seule), ' + (Get-Date).ToString('yyyy-MM-dd HH:mm'))
+Write-Host "Info Pg20 : diagnostic de compatibilité (lecture seule)" -ForegroundColor Cyan
+$script:lines.Add('Info Pg20 : diagnostic de compatibilité (lecture seule), ' + (Get-Date).ToString('yyyy-MM-dd HH:mm'))
 
 # ------------------------------------------------------------------ Windows
 Section 'Windows'
@@ -129,7 +129,7 @@ if (Test-Path -LiteralPath $agentDir) {
 
 # ------------------------------------------------------------------ serveur (facultatif)
 if ($Server) {
-    Section 'Serveur Pg20 Info (connexion TCP seulement)'
+    Section 'Serveur Info Pg20 (connexion TCP seulement)'
     $h = $Server; $port = 21120
     if ($Server -match '^(?<h>[^:]+):(?<p>\d{1,5})$') { $h = $Matches.h; $port = [int]$Matches.p }
     $c = New-Object Net.Sockets.TcpClient

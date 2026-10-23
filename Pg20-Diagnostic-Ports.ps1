@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Pg20 Info : mesure ce que RustDesk laisse ouvert sur CE poste (ports en écoute, règles du pare-feu Windows, options réseau). LECTURE SEULE : rien n'est
+    Info Pg20 : mesure ce que RustDesk laisse ouvert sur CE poste (ports en écoute, règles du pare-feu Windows, options réseau). LECTURE SEULE : rien n'est
     installé, créé ni modifié, sauf le fichier de rapport.
 
 .DESCRIPTION
@@ -68,7 +68,7 @@ function Get-PortsVerdict {
     $v.ToArray()
 }
 
-Add-Out ('Pg20 Info : mesure des ports de RustDesk, ' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))
+Add-Out ('Info Pg20 : mesure des ports de RustDesk, ' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 Add-Out ('Session : ' + $(if ($isAdmin) { 'administrateur' } else { 'utilisateur standard (le pare-feu et la configuration du service ne sont pas lisibles : relancez en administrateur)' }))
 Add-Out ('PC : ' + $env:COMPUTERNAME)

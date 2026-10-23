@@ -32,3 +32,6 @@ data/
 build.config.json
 branding/logo.*
 publication/
+
+# Outils, réglages et logo propres au technicien : jamais publiés
+outils/

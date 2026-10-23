@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Reçoit les fiches d'installation envoyées par l'exe Pg20 Info (service exposé à Internet : TCP 21120, TLS).
+"""Reçoit les fiches d'installation envoyées par l'exe Info Pg20 (service exposé à Internet : TCP 21120, TLS).
 
 POST /v1/record   {"v":1, "id":"<ID RustDesk>", "label":"<nom affiché>", "blob":"<fiche chiffrée, base64>"}
 POST /v1/wait     {"v":1, "follow":"<numéro de suivi>"} : attend (20 s au plus) que le technicien valide la fiche : {"ok": true, "validated": true|false}
@@ -22,6 +22,7 @@ import base64
 import binascii
 import collections
 import datetime
+import hashlib
 import http.server
 import json
 import os
@@ -59,6 +60,31 @@ FOLLOW_RE = re.compile(r"^[0-9a-f]{32}$")
 NONCE_RE = re.compile(r"^[0-9a-f]{32}$")
 ORDERS = os.path.join(SPOOL, "orders")                            # ordres de désinstallation signés (déposés par le flux) et accusés des postes
 ORDER_MAX_AGE = 31 * 86400
+
+# --- Correctifs du 2026-10-10 (audit de fragilité) -------------------------------------------------------------------------------------
+# 1) Taille maximale des EN-TÊTES d'une requête. La bibliothèque standard ne borne que la longueur d'UNE ligne : un client pouvait envoyer
+#    des milliers d'en-têtes, faire enfler la mémoire du service (MemoryMax=128M) et le faire tomber en boucle de redémarrage.
+# 2) Plafond de connexions SIMULTANÉES par adresse : sans lui, 16 connexions lentes depuis une seule adresse (slowloris : en-têtes ou corps
+#    au goutte-à-goutte) occupaient tous les créneaux et bloquaient TOUTES les installations, sans même consommer le quota de requêtes.
+MAX_HEADER_BYTES = int(os.environ.get("PG20_INBOX_MAX_HEADERS", "16384"))
+# Le plafond par adresse est PROPORTIONNEL au total (un quart), avec un plancher de 4 : un poste n'ouvre qu'une ou deux
+# connexions à la fois, et tous les postes d'un même client partagent leur adresse publique. Si MAX_CONNECTIONS augmente
+# un jour, le plafond par adresse suit, au lieu de rester figé à 4 et de provoquer des refus injustifiés chez un client.
+# Un réglage explicite par PG20_INBOX_CONN_IP reste prioritaire, et le total ne peut jamais être atteint par une seule
+# adresse : le dernier créneau reste toujours disponible pour une autre.
+MAX_CONN_PER_IP = int(os.environ.get("PG20_INBOX_CONN_IP") or max(4, MAX_CONNECTIONS // 4))
+MAX_CONN_PER_IP = min(MAX_CONN_PER_IP, max(1, MAX_CONNECTIONS - 1))
+# 3) ÉCHÉANCE ABSOLUE par connexion (correctif du 2026-10-10, 2e vague). Le délai d'attente du socket (8 s) ne borne que
+#    CHAQUE lecture : un client peut envoyer un octet toutes les 7 secondes et occuper un créneau indéfiniment, sans jamais
+#    déclencher le délai ni consommer de quota. On fixe donc une durée de vie maximale à la connexion, quel que soit son usage.
+CONN_MAX_SECONDS = int(os.environ.get("PG20_INBOX_CONN_MAX_SECONDS", "30"))
+# 4) Dépôt idempotent : mémoire des codes attribués à une fiche (empreinte -> (instant, code)), pendant CODE_TTL secondes.
+#    Un renvoi à l'identique rend le MÊME code au lieu d'en créer un nouveau (qui invaliderait celui affiché au client).
+CODE_TTL = int(os.environ.get("PG20_INBOX_CODE_TTL", "600"))
+CODE_RECENT = {}
+CODE_LOCK = threading.Lock()
+CONN_BY_IP = {}
+CONN_LOCK = threading.Lock()
 
 
 def log(msg):
@@ -110,6 +136,11 @@ class Limiter:
 
 LIMITER = Limiter(per_ip=int(os.environ.get("PG20_INBOX_RATE_IP", "12")), per_ip_window=600,
                   total=int(os.environ.get("PG20_INBOX_RATE_TOTAL", "100")), total_window=3600)
+# Correctif du 2026-10-10 : le ping (/v1/ping) partageait le MÊME quota global que l'envoi des fiches (100 par heure). Un simple moniteur
+# qui interroge le ping consommait donc ce quota et faisait refuser les fiches de vrais clients (429) pendant une heure, sans raison.
+# Le ping a désormais son propre limiteur, avec un plafond global large qui ne concerne que lui.
+PING_LIMITER = Limiter(per_ip=int(os.environ.get("PG20_INBOX_PING_RATE_IP", "24")), per_ip_window=600,
+                       total=int(os.environ.get("PG20_INBOX_PING_RATE_TOTAL", "2000")), total_window=3600)
 SLOTS = threading.BoundedSemaphore(MAX_CONNECTIONS)
 SPOOL_LOCK = threading.Lock()
 WAIT_LIMITER = Limiter(per_ip=int(os.environ.get("PG20_INBOX_WAIT_RATE_IP", "40")), per_ip_window=600, total=600, total_window=3600)
@@ -136,6 +167,25 @@ def registration_state(pid, ip):
         return "unknown"
     except (OSError, ValueError, KeyError, TypeError):
         return "unavailable"
+
+
+def code_for_deposit(pid, blob, now=None):
+    """Code de contrôle à 4 chiffres pour cette fiche. Un renvoi À L'IDENTIQUE (même ID, même contenu chiffré) reçoit le
+    MÊME code pendant CODE_TTL : l'exe qui réessaie après une coupure réseau n'invalide donc plus le code déjà affiché au
+    client. Au-delà du délai, ou après un redémarrage du service, un code neuf est attribué (comportement d'avant)."""
+    empreinte = hashlib.sha256(("%s|%s" % (pid, blob)).encode("utf-8")).hexdigest()
+    if now is None:
+        now = time.monotonic()
+    with CODE_LOCK:
+        connu = CODE_RECENT.get(empreinte)
+        if connu and (now - connu[0]) <= CODE_TTL:
+            return connu[1]
+        code = "%04d" % secrets.randbelow(10000)
+        CODE_RECENT[empreinte] = (now, code)
+        if len(CODE_RECENT) > 5000:                  # bornage de la mémoire : on purge les entrées périmées
+            for k in [k for k, v in CODE_RECENT.items() if (now - v[0]) > CODE_TTL]:
+                del CODE_RECENT[k]
+        return code
 
 
 def store_record(pid, label, blob, ip, code):
@@ -251,9 +301,104 @@ class Handler(http.server.BaseHTTPRequestHandler):
     sys_version = ""
     protocol_version = "HTTP/1.0"      # une requête par connexion
     timeout = 8
+    _conn_close = False                # positionné par parse_request quand les en-têtes dépassent le plafond
 
     def log_message(self, fmt, *args):
         pass                            # journal volontairement sobre : rien de ce que l'appelant envoie n'est recopié
+
+    # --- correctifs du 2026-10-10 -----------------------------------------------------------------------------------------------------
+    def handle(self):
+        """Compte les connexions simultanées de cette adresse et les libère TOUJOURS (même en cas d'erreur)."""
+        ip = self.client_address[0]
+        # Échéance absolue : à partir de maintenant, cette connexion n'a plus que CONN_MAX_SECONDS pour aboutir.
+        self._conn_deadline = time.monotonic() + CONN_MAX_SECONDS
+        with CONN_LOCK:
+            n = CONN_BY_IP.get(ip, 0)
+            CONN_BY_IP[ip] = n + 1
+            if len(CONN_BY_IP) > 2000:              # nettoyage : on ne garde pas les adresses retombées à zéro
+                for k in [k for k, v in CONN_BY_IP.items() if v <= 0]:
+                    del CONN_BY_IP[k]
+        try:
+            http.server.BaseHTTPRequestHandler.handle(self)
+        finally:
+            with CONN_LOCK:
+                left = CONN_BY_IP.get(ip, 1) - 1
+                if left <= 0:
+                    CONN_BY_IP.pop(ip, None)
+                else:
+                    CONN_BY_IP[ip] = left
+
+    def _too_many_conns(self):
+        """Vrai si cette adresse a déjà trop de connexions ouvertes : on refuse sans rien lire (aucune mémoire consommée)."""
+        with CONN_LOCK:
+            return CONN_BY_IP.get(self.client_address[0], 0) > MAX_CONN_PER_IP
+
+    def parse_request(self):
+        """Correctif du 2026-10-10 : borne la TAILLE des en-têtes lus. La bibliothèque standard ne limite que la longueur d'UNE ligne, pas
+        leur nombre total : un client pouvait envoyer des milliers d'en-têtes et faire tomber le service (mémoire). On plafonne la lecture du
+        socket, puis on refuse par un 431 si le plafond est atteint. Aucune méthode privée n'est utilisée : la lecture de la ligne de requête
+        et l'analyse des en-têtes restent faites par la bibliothèque standard."""
+        self._header_hits = []
+        self._header_bytes = 0
+        try:
+            brut = self.connection.recv_into
+        except AttributeError:
+            return http.server.BaseHTTPRequestHandler.parse_request(self)
+
+        def compte(b, *a, **k):
+            if len(self._header_hits) >= 20000:          # garde-fou absolu (ne devrait jamais être atteint)
+                raise http.client.LineTooLong('header cap')
+            # Échéance absolue pendant la LECTURE des en-têtes aussi : un client qui envoie « GET / » puis un octet
+            # toutes les 7 secondes garderait sinon le créneau jusqu'au délai de sa propre connexion.
+            if self._conn_expiree():
+                raise http.client.LineTooLong('connection too old')
+            autorise = MAX_HEADER_BYTES - self._header_bytes
+            if autorise <= 0:
+                raise http.client.LineTooLong('header cap')
+            n = brut(b, min(len(b), autorise), *a[1:])
+            self._header_hits.append(n)
+            self._header_bytes += n
+            return n
+
+        self.connection.recv_into = compte
+        ok = http.server.BaseHTTPRequestHandler.parse_request(self)
+        self._header_bytes = sum(self._header_hits)
+        if ok and self._header_bytes > MAX_HEADER_BYTES:
+            ok = False
+        if not ok:
+            self._conn_close = True
+            try:
+                self._send(431, {"ok": False, "error": "headers too large"})
+            except OSError:
+                pass
+        return ok
+
+    def _conn_expiree(self):
+        """Vrai si la connexion a dépassé son échéance absolue (CONN_MAX_SECONDS)."""
+        return time.monotonic() > getattr(self, '_conn_deadline', float('inf'))
+
+    def _conn_guard(self):
+        """431 : en-têtes trop gros ; 429 : trop de connexions depuis cette adresse ; 408 : connexion trop vieille."""
+        if getattr(self, '_conn_close', False):
+            self.close_connection = True
+            return True
+        # Échéance absolue : une connexion qui traîne (un octet toutes les 7 s) est coupée même si le socket ne s'est jamais
+        # tu assez longtemps pour déclencher son propre délai de lecture.
+        if self._conn_expiree():
+            try:
+                self._send(408, {"ok": False, "error": "connection too old"})
+            except OSError:
+                pass
+            self.close_connection = True
+            return True
+        if self._too_many_conns():
+            try:
+                self._send(429, {"ok": False, "error": "too many connections"})
+            except OSError:
+                pass
+            self.close_connection = True
+            return True
+        return False
 
     def _send(self, code, obj):
         body = json.dumps(obj).encode("utf-8")
@@ -272,16 +417,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             pass
 
     def do_GET(self):
+        if self._conn_guard():
+            return
         ip = self.client_address[0]
         if self.path.startswith("/v1/order?"):
             return self._order(ip, self.path.split("?", 1)[1])
-        if self.path == "/v1/ping" and LIMITER.allow(ip):
+        if self.path == "/v1/ping" and PING_LIMITER.allow(ip):
             return self._send(200, {"ok": True})
         return self._send(404 if self.path != "/v1/ping" else 429, {"ok": False})
 
     def _wait(self, ip):
         """Attend que le technicien valide la fiche (20 s au plus). Une attente n'existe que pour un numéro de suivi réel :
         un numéro inconnu reçoit tout de suite la même réponse 409, il ne peut donc pas retenir de connexion."""
+        if self._conn_guard():
+            return
         if not WAIT_LIMITER.allow(ip):
             return self._send(429, {"ok": False, "error": "rate"})
         try:
@@ -324,6 +473,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _order(self, ip, query):
         """GET /v1/order?id=<ID> : l'ordre de désinstallation signé qui attend ce poste, s'il y en a un. Réponse publique par nature (l'ordre est
         signé, il ne contient aucun secret) ; seul le poste visé, qui vérifie la signature et son ID, peut en faire quelque chose."""
+        if self._conn_guard():
+            return
         if not ORDER_LIMITER.allow(ip):
             return self._send(429, {"ok": False, "error": "rate"})
         try:
@@ -341,6 +492,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def _order_done(self, ip):
         """POST /v1/order-done {"v":1,"id":"...","nonce":"..."} : le poste signale avoir exécuté l'ordre. Écrit un accusé que le flux relaie au technicien.
         N'efface RIEN : un faux accusé ne peut donc jamais annuler un ordre, il ne fait qu'avancer l'affichage du technicien."""
+        if self._conn_guard():
+            return
         if not ORDER_LIMITER.allow(ip):
             return self._send(429, {"ok": False, "error": "rate"})
         try:
@@ -373,6 +526,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         return self._send(200, {"ok": True})
 
     def do_POST(self):
+        if self._conn_guard():
+            return
         ip = self.client_address[0]
         if self.path == "/v1/wait":
             return self._wait(ip)
@@ -416,7 +571,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self._send(409, {"ok": False, "error": "retry"})
         # Code de contrôle choisi ICI (pas par l'exe) : l'exe l'affiche chez le client, le technicien le retrouve sur son
         # téléphone. Une fausse fiche reçoit un autre code, qui ne s'affiche sur l'écran d'aucun vrai client.
-        code = "%04d" % secrets.randbelow(10000)
+        # 4) DÉPÔT IDEMPOTENT (correctif du 2026-10-10, 2e vague) : voir code_for_deposit — un renvoi à l'identique rend le
+        #    MÊME code pendant 10 minutes, au lieu d'en créer un nouveau qui invaliderait celui affiché au client.
+        code = code_for_deposit(pid, blob)
         try:
             stored = store_record(pid, label, blob, ip, code)
         except OSError as e:

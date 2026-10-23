@@ -1,5 +1,5 @@
 @echo off
-title Pg20 Info - diagnostic de compatibilite
+title Info Pg20 - diagnostic de compatibilite
 echo Diagnostic en lecture seule : rien n'est installe ni modifie.
 echo Pour un rapport complet : clic droit sur ce fichier, puis Executer en tant qu'administrateur.
 echo.

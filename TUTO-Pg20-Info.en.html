@@ -1,5 +1,5 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pg20 Info tutorial (English translation)</title>
+<title>Info Pg20 tutorial (English translation)</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=JetBrains+Mono:wght@400;600&family=Source+Sans+3:ital,wght@0,400;0,600;0,700;1,400&display=swap">
@@ -195,7 +195,7 @@ footer p { max-width: 76ch; }
 <div class="page">
 <header class="hero">
   <p class="eyebrow">Tutorial · self-hosting · remote support</p>
-  <h1>Pg20 Info</h1>
+  <h1>Info Pg20</h1>
   <p class="lead">Your own RustDesk server, a one-double-click Windows installer, and client records that register themselves, encrypted, with validation from your phone.</p>
   <ul class="meta">
     <li><b>For</b>: a technician comfortable with Linux, networking and PowerShell</li>
@@ -266,7 +266,7 @@ footer p { max-width: 76ch; }
 <p>The goal: install RustDesk at a client's, then connect to it later without retyping an ID or a password. Here is one installation, from the technician's point of view on site.</p>
 <ol class="steps">
   <li><b>The client double-clicks the exe</b> (USB key or link). Windows asks for administrator rights.</li>
-  <li><b>The client reads and accepts the terms</b>: a window shows the text, the client ticks the box and types a name. Without acceptance, nothing is installed. The acceptance (name, date, fingerprint of the text) is kept as proof.</li>
+  <li><b>The client reads and accepts the terms</b>: a window shows the text, which the client must scroll to the bottom; the client then ticks the box and types a name and an e-mail address. Without acceptance, nothing is installed. The acceptance (name, date, fingerprint of the text) is kept as proof.</li>
   <li><b>The exe installs RustDesk</b>, configures it for your server with its key, and sets a permanent password of at least 12 characters, typed or generated. It also installs a small maintenance task, which can only uninstall RustDesk on an order signed by you.</li>
   <li><b>The exe sends an encrypted record</b> (name, ID, password) to your server. The server cannot read it. It picks a 4-digit code, which the exe displays at the client's.</li>
   <li><b>Your phone rings</b>: name, ID and code. You compare with the client's screen, then tap Validate. The window at the client's then shows "Validated" and closes by itself.</li>
@@ -277,7 +277,7 @@ footer p { max-width: 76ch; }
 <div class="note info">
   <span class="label">What it does not do</span>
   <ul>
-    <li>No "online" status for clients: the RustDesk server does not expose it.</li>
+    <li>A client's "online" status (dot in "Se connecter" and in the clients page) only means that RustDesk is running there and connected to the server within the last 30 seconds: it does not mean anyone is at the screen.</li>
     <li>Windows clients only (the exe). A macOS or Linux computer is configured by hand with the same options.</li>
     <li>A single technician: the private key lives on one PC (plus a backup).</li>
     <li>No code signing: Windows and some antivirus programs may distrust the exe.</li>
@@ -878,7 +878,7 @@ sequence:
 <ol class="steps">
   <li><b>You complete the text.</b> Copy the template as <code>conditions\conditions-YYYY-MM-DD.txt</code> and fill in the fields in square brackets (technician, address, e-mail, retention period, erasure delay). The first line, <code>Version : …</code>, identifies the version. <b>Keep every version a client has accepted</b>: it is the one their proof designates.</li>
   <li><b>The build refuses an incomplete text.</b> As long as a field in square brackets remains, <code>Pg20-Exe-Compiler.ps1</code> stops.</li>
-  <li><b>At launch</b>, the exe displays the text: the client ticks "I have read…" and types their name (3 characters at least). Refusing or closing the window: nothing is installed (exit code 20). In silent mode, the <code>/accept</code> option is mandatory (code 21 otherwise) and the proof records "accepted by parameter": this is then a statement by the technician, not by the client.</li>
+  <li><b>At launch</b>, the exe displays the text: the client must scroll it to the bottom (the box, the name and the e-mail stay greyed out until then), then ticks "I have read…" and types their name (3 characters at least) and e-mail address (light client: no e-mail). The proof records the e-mail and the time elapsed before the end of the text. Refusing or closing the window: nothing is installed (exit code 20). In silent mode, the <code>/accept</code> option is mandatory (code 21 otherwise) and the proof records "accepted by parameter": this is then a statement by the technician, not by the client.</li>
   <li><b>The proof</b> travels in the encrypted record: PC time (UTC), typed name, name of the PC and of the Windows user, RustDesk ID, version of the text, SHA-256 fingerprint of the text, mode (window or parameter), seconds spent in the window. The server adds its own reception time, which does not depend on the client's clock. On the USB key, a separate file (<code>rustdesk-consents.csv</code>) plays the same role. The client keeps a copy of the accepted text in <code>C:\ProgramData\Pg20-Info\</code>.</li>
   <li><b>On your PC</b>, the proof is stored with the client. On validation, the tool writes a file <code>Documents\Pg20-Info-Preuves\Preuve-&lt;ID&gt;-&lt;date&gt;.txt</code> ("Preuve" means proof), with the accepted text found by its fingerprint in the <code>conditions\</code> folder. These files survive the deletion of the client.</li>
 </ol>
@@ -1009,7 +1009,9 @@ pg20-order-v1|&lt;id&gt;|uninstall|&lt;nonce&gt;|&lt;iat&gt;|&lt;exp&gt;</code><
   <li><b>The technician's PC must be on</b> and reach the server (local network or VPN) to fetch the records. Otherwise they wait, encrypted, 14 days on the server.</li>
   <li>The sensor reads only the 30 most recent computers.</li>
   <li><b>Automatic closing of the client's window</b>: only the validation of a record that arrived from the server triggers it, not that of a client imported from the USB key. Validating from the PC does not close the phone's notification. Without validation, the window waits 10 minutes at most.</li>
-  <li>No "online" indicator: hbbs does not publish this information.</li>
+  <li>The "online" indicator asks the server the same question the RustDesk app does (TCP port 21115): you must be on the local network or the VPN, and the column shows "? inconnu" (unknown) when the server does not answer. There is no API for it: this is what the RustDesk client itself does.</li>
+  <li><b>First connection of a client.</b> This is the date its PC first registered on the RustDesk server ("première connexion le …" in the clients page). It never changes afterwards: it says nothing about the last time the PC was switched on.</li>
+  <li><b>Last connection of a client.</b> "A été connecté le …" (clients page) or "○ hors ligne, connecté le …" (the "Se connecter" window) is the last time the server saw the PC online, polled every 15 seconds. Readings started on 23 October 2026 at 09:19 (Swiss local time): before that nothing is known, and an offline computer shows "aucune connexion notée depuis le …" (page) or "pas encore vu" (window) until it next connects. This needs the presence script installed on the VM (<code>install-presence.sh</code>); without it, or if the server does not answer, the display stays as before.</li>
   <li>A single technician and a single key.</li>
   <li>A regenerated TLS certificate forces you to rebuild the exes.</li>
   <li><b>Automatic uninstallation is not instantaneous</b>: the computer polls the server every 3 minutes, or at its next start-up if it was off. At this interval the receiver accepts 60 order requests per 10 minutes and per public address: about 18 computers per site before it starts limiting. It works only on computers installed with the maintenance task; the others go through the guided procedure.</li>
@@ -1077,7 +1079,7 @@ sudo nft -f /etc/nftables.d/pg20.nft</code></pre></figure>
 <footer>
   <p>This is an English translation of the French page <a href="TUTO-Pg20-Info.html">TUTO-Pg20-Info.html</a>, which is the reference. Translated with the help of an AI assistant, not proofread by a native speaker.</p>
   <p>This document is provided as is, without warranty, and is neither legal advice nor a security audit. You remain responsible for what you install at your clients' and for what you expose to the Internet.</p>
-  <p>Pg20 Info has no connection with RustDesk or its publishers. RustDesk is a trademark of its owners. The setup was designed and tested by its author with the help of the AI assistant Claude, which was also used to write this page.</p>
+  <p>Info Pg20 has no connection with RustDesk or its publishers. RustDesk is a trademark of its owners. The setup was designed and tested by its author with the help of the AI assistant Claude, which was also used to write this page.</p>
 </footer>
 
 </article>

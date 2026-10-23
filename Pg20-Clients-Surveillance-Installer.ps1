@@ -30,7 +30,7 @@ $target = Join-Path $scriptDir 'Pg20-Clients-Carnet.ps1'
 function Stop-Watchers {
     # Arrête les surveillances en cours (processus powershell lancés avec Pg20-Clients-Carnet.ps1 -Watch)
     Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" |
-        Where-Object { $_.CommandLine -match 'Pg20-Clients\.ps1' -and $_.CommandLine -match '\s-Watch(\s|$)' } |
+        Where-Object { $_.CommandLine -match 'Pg20-Clients-Carnet\.ps1' -and $_.CommandLine -match '\s-Watch(\s|$)' } |
         ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue; "  processus $($_.ProcessId) arrêté" }
 }
 
@@ -54,14 +54,14 @@ $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -Ru
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit ([TimeSpan]::Zero) `
     -RestartCount 5 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force `
-    -Description 'Pg20 Info : relève les fiches d''installation envoyées au serveur RustDesk et applique les validations du téléphone (Pg20-Clients-Carnet.ps1 -Watch).' | Out-Null
+    -Description 'Info Pg20 : relève les fiches d''installation envoyées au serveur RustDesk et applique les validations du téléphone (Pg20-Clients-Carnet.ps1 -Watch).' | Out-Null
 Write-Host "[+] Tâche « $taskName » créée pour $user (à l'ouverture de session, sans fenêtre, sans droits administrateur)." -ForegroundColor Green
 
 if (-not $NoStart) {
     Stop-Watchers | Out-Null
     Start-ScheduledTask -TaskName $taskName
     Start-Sleep -Seconds 4
-    $running = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" | Where-Object { $_.CommandLine -match 'Pg20-Clients\.ps1' -and $_.CommandLine -match '\s-Watch(\s|$)' })
+    $running = @(Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" | Where-Object { $_.CommandLine -match 'Pg20-Clients-Carnet\.ps1' -and $_.CommandLine -match '\s-Watch(\s|$)' })
     if ($running.Count) { Write-Host "[+] Surveillance démarrée (processus $($running[0].ProcessId)). Journal : $(Join-Path $env:APPDATA 'Pg20-Info\watch.log')" -ForegroundColor Green }
     else { Write-Host '[!] La tâche est créée mais aucun processus de surveillance n''est visible : consultez watch.log ou relancez la tâche.' -ForegroundColor Yellow }
 }

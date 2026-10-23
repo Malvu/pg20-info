@@ -1,4 +1,4 @@
-﻿DÉPLOIEMENT PAR SCRIPT : installer le client Pg20 Info sur un ou plusieurs PC sans question
+﻿DÉPLOIEMENT PAR SCRIPT : installer le client Info Pg20 sur un ou plusieurs PC sans question
 ==========================================================================================
 
 Quand l'utiliser : un client a plusieurs postes (bureau, cabinet, école) et vous ne voulez pas passer devant chacun avec la clé USB.

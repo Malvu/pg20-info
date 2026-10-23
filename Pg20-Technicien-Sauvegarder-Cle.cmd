@@ -1,5 +1,5 @@
 @echo off
-title Pg20 Info - sauvegarde de la cle privee du technicien
+title Info Pg20 - sauvegarde de la cle privee du technicien
 echo ============================================================================
 echo  SAUVEGARDE DE LA CLE PRIVEE (a faire UNE fois, puis apres tout changement)
 echo ============================================================================

@@ -49,7 +49,7 @@ printf '%s\n' "$tpl" > "$SNIP/pg20-user.yaml"
 qm create "$VMID" --name "$NAME" --ostype l26 --memory 1024 --balloon 0 --cores 1 --cpu host \
   --net0 "virtio=$MAC,bridge=vmbr0" --scsihw virtio-scsi-single --agent enabled=1 --onboot 1 \
   --serial0 socket --vga serial0 \
-  --description "Serveur RustDesk Pg20 Info (hbbs/hbbr) + Cockpit. Cree le $(date +%F)."
+  --description "Serveur RustDesk Info Pg20 (hbbs/hbbr) + Cockpit. Cree le $(date +%F)."
 qm set "$VMID" --scsi0 "$STORAGE:0,import-from=$DL/$IMG,format=qcow2,discard=on"
 qm resize "$VMID" scsi0 16G
 qm set "$VMID" --ide2 "$STORAGE:cloudinit" --boot order=scsi0

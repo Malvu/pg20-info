@@ -269,7 +269,7 @@ function Show-Notice([string]$text, [bool]$ok, [int]$seconds) {
         [System.Windows.Forms.Application]::EnableVisualStyles()
         $h = $(if ($ok) { 56 } else { 134 })
         $f = New-Object System.Windows.Forms.Form
-        $f.Text = 'Pg20 Info - clé USB'; $f.StartPosition = 'CenterScreen'; $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.ShowInTaskbar = $false; $f.TopMost = $true
+        $f.Text = 'Info Pg20 - clé USB'; $f.StartPosition = 'CenterScreen'; $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.ShowInTaskbar = $false; $f.TopMost = $true
         $f.ClientSize = New-Object System.Drawing.Size(470, ($h + 72))
         $l = New-Object System.Windows.Forms.Label
         $l.Text = $text; $l.Font = New-Object System.Drawing.Font('Segoe UI', 11); $l.UseMnemonic = $false

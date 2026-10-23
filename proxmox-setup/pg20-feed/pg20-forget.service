@@ -1,5 +1,5 @@
 [Unit]
-Description=Pg20 Info : retire de la base RustDesk les postes dont la suppression est demandée
+Description=Info Pg20 : retire de la base RustDesk les postes dont la suppression est demandée
 After=docker.service
 
 [Service]

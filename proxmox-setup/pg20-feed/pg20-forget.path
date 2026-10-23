@@ -1,5 +1,5 @@
 [Unit]
-Description=Pg20 Info : demandes de suppression de postes (déclencheur)
+Description=Info Pg20 : demandes de suppression de postes (déclencheur)
 
 [Path]
 DirectoryNotEmpty=/var/lib/pg20-forget

@@ -1,0 +1,10 @@
+[Unit]
+Description=Info Pg20 : relevé périodique de la présence des postes
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=15s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

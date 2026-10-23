@@ -1,5 +1,5 @@
 [Unit]
-Description=Pg20 Info : réception des fiches d'installation (TLS, exposé à Internet sur TCP 21120)
+Description=Info Pg20 : réception des fiches d'installation (TLS, exposé à Internet sur TCP 21120)
 After=network-online.target pg20-peers-export.service
 Wants=network-online.target
 

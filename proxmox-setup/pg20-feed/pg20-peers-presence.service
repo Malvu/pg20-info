@@ -1,0 +1,22 @@
+[Unit]
+Description=Info Pg20 : dernière fois où chaque poste a été vu en ligne (question à hbbs)
+After=pg20-peers-export.service
+
+[Service]
+Type=oneshot
+Environment=PG20_HBBS_HOST=<IP_VM>
+ExecStart=/usr/bin/python3 /usr/local/lib/pg20/peers-presence.py
+TimeoutStartSec=15
+
+# Isolation : lit peers.json, écrit presence.json, ne parle qu'à hbbs (réseau local)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/var/lib/pg20-peers
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET
+MemoryDenyWriteExecute=yes
+IPAddressDeny=any
+IPAddressAllow=<RESEAU_LOCAL>

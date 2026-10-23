@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>Pg20 Info · Clients</title>
+<title>Info Pg20 · Clients</title>
 <style>
   :root {
     --bg:#f3f4f7; --card:#ffffff; --text:#161a22; --muted:#5d6877; --line:#e2e5eb;
@@ -53,6 +53,7 @@
   .sub { color:var(--muted); font-size:13.5px; margin-top:2px; overflow-wrap:anywhere; }
   .meta { color:var(--muted); font-size:12.5px; margin-top:4px; }
   .pill { font-size:12px; font-weight:600; padding:2px 9px; border-radius:999px; }
+  .online { font-size:12px; font-weight:600; margin-left:2px; white-space:nowrap; } .online.on { color:var(--ok); } .online.off { color:var(--muted); }
   .pill.ok { background:var(--ok-bg); color:var(--ok); } .pill.warn { background:var(--warn-bg); color:var(--warn); } .pill.mute { background:var(--soft); color:var(--muted); }
   .codebox { display:inline-block; margin-top:6px; padding:5px 11px; border-radius:10px; background:var(--warn-bg); color:var(--warn); font-size:13px; }
   .codebox b { font:700 15px/1 ui-monospace,Consolas,monospace; letter-spacing:.12em; margin:0 4px; }
@@ -80,7 +81,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Pg20 Info · Clients<small>Dépannage à distance RustDesk</small></h1>
+    <h1>Info Pg20 · Clients<small>Dépannage à distance RustDesk</small></h1>
     <div class="chips">
       <span class="chip" id="chipServer"><span class="dot"></span><span id="chipServerText">Serveur…</span></span>
       <span class="chip" id="chipUsb"><span class="dot"></span><span id="chipUsbText">Clé USB…</span></span>
@@ -160,7 +161,8 @@ function card(c) {
       h('div', { class: 'name' }, c.name, c.isNew ? h('span', { class: 'new' }, 'nouveau') : null,
         h('span', { class: 'pill ' + (pending ? 'warn' : hidden ? 'mute' : 'ok') },
           pending ? (c.incoming ? 'Mise à jour reçue · à valider' : c.viaServer ? 'Fiche reçue · à valider' : c.unknown ? 'Poste inconnu · à valider' : 'À valider') : hidden ? 'Masqué' : 'Validé'),
-        c.uninstallSince ? h('span', { class: 'pill warn' }, 'Désinstallation demandée') : null),
+        c.uninstallSince ? h('span', { class: 'pill warn' }, 'Désinstallation demandée') : null,
+        c.online === true || c.online === false ? h('span', { class: 'online ' + (c.online ? 'on' : 'off'), title: 'En ligne = RustDesk est lancé chez ce client et relié au serveur (inscrit depuis moins de 30 s). Cela ne dit pas que quelqu’un est devant l’écran.' }, c.online ? '● en ligne' : '○ hors ligne') : null),
       h('div', { class: 'sub' }, 'ID ' + c.idText + (c.host ? ' · ' + c.host : '')),
       pending && c.code ? h('div', { class: 'codebox' }, 'Code de contrôle', h('b', {}, c.code), '— doit être identique à celui affiché chez le client') : null,
       pending && c.incoming ? h('div', { class: 'incoming' }, 'Nouvelles données reçues : ' + c.incoming.name + (c.incoming.host ? ' · ' + c.incoming.host : '') + (c.incoming.installed ? ' · ' + c.incoming.installed : '') + '. Elles remplaceront les actuelles (dont le mot de passe) seulement si vous validez.') : null,
@@ -173,7 +175,8 @@ function card(c) {
       c.consent ? h('div', { class: 'meta' }, '✔ ' + c.consent) : null,
       c.agent && !c.uninstallSince ? h('div', { class: 'meta' }, '⟳ Désinstallation à distance automatique disponible (bouton « Désinstaller… » de la fenêtre « Se connecter »)') : null,
       c.ip ? h('div', { class: 'meta' }, ((c.ipPrev && (Date.now() - new Date(c.ipChanged.replace(' ', 'T')).getTime()) < 7 * 864e5) ? '⚠ ' : '') + 'Adresse Internet vue par le serveur : ' + c.ip + (c.ipPrev ? ' · avant : ' + c.ipPrev + ' (changée le ' + c.ipChanged + ')' : '')) : null,
-      h('div', { class: 'meta' }, (c.installed ? 'Installé le ' + c.installed : 'Installation non enregistrée sur la clé') + ' · ' + (c.firstSeen ? 'vu par le serveur le ' + c.firstSeen : 'pas encore vu par le serveur'))),
+      h('div', { class: 'meta' }, (c.installed ? 'Installé le ' + c.installed : 'Installation non enregistrée sur la clé') + ' · ' + (c.firstSeen ? 'première connexion le ' + c.firstSeen : 'pas encore de première connexion')
+        + (c.online === false && c.lastOnline ? ' · a été connecté le ' + c.lastOnline : c.online === false && c.presenceSince ? ' · aucune connexion notée depuis le ' + c.presenceSince : ''))),
     h('div', { class: 'actions' },
       h('button', { class: 'primary', onclick: () => {
         if (pending && !confirm('« ' + c.name + ' » (ID ' + c.idText + ') n’a pas été validé.\nSe connecter quand même ?')) return;

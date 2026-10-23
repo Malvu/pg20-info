@@ -1,5 +1,5 @@
 [Unit]
-Description=Pg20 Info : export périodique de la liste des postes
+Description=Info Pg20 : export périodique de la liste des postes
 
 [Timer]
 OnBootSec=20s

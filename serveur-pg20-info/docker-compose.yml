@@ -1,4 +1,4 @@
-# Serveur RustDesk "Pg20 Info"
+# Serveur RustDesk "Info Pg20"
 #   hbbs = annuaire / mise en relation des postes (ports 21115, 21116 TCP+UDP)
 #   hbbr = relais quand la connexion directe est impossible (port 21117)
 # Linux uniquement (network_mode: host). La configuration vient du fichier .env (créé par install.sh).

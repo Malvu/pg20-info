@@ -1,4 +1,4 @@
-# Serveur RustDesk « Pg20 Info »
+# Serveur RustDesk « Info Pg20 »
 
 Serveur à héberger chez vous (NAS, Raspberry, mini-PC Linux avec Docker), joignable par votre **IP publique fixe**.
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=Pg20 Info : liste des postes RustDesk et fiches en attente (réseau local, jeton)
+Description=Info Pg20 : liste des postes RustDesk et fiches en attente (réseau local, jeton)
 After=network-online.target pg20-peers-export.service
 Wants=network-online.target
 

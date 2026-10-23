@@ -6,6 +6,9 @@ GET  /peers[?limit=N]      -> contenu de peers.json                  (en-tête  
                               + pending_label / pending_code / pending_since pour les postes dont une fiche attend d'être relevée
                               (ou l'a été il y a moins de 30 minutes sans avoir été validée : Home Assistant, qui lit toutes les 30 s,
                               affiche ainsi la fiche à valider même quand le PC du technicien l'a déjà relevée)
+GET  /presence             -> contenu de presence.json (écrit par peers-presence.py toutes les 15 s) : pour chaque poste, s'il est en ligne
+                              maintenant et la dernière fois où hbbs l'a vu en ligne (« a été connecté le ... »). Volontairement séparé de /peers :
+                              Home Assistant lit /peers toutes les 30 s et sa liste ne doit changer que lorsqu'un poste arrive ou part
 GET  /records[?brief=1]    -> fiches reçues d'Internet par inbox-receive.py, en attente d'être récupérées, et validations reçues
                               du téléphone (brief=1 : sans la fiche chiffrée ni les validations, pour Home Assistant)
 POST /records/validate     -> {"id":"...","received_at":"..."} : le technicien a validé cette fiche depuis son téléphone
@@ -35,6 +38,7 @@ import json
 import os
 import re
 import socketserver
+import ssl
 import sys
 import tempfile
 import threading
@@ -42,12 +46,38 @@ import time
 from urllib.parse import parse_qs, urlsplit
 
 DATA = os.environ.get("PG20_FEED_DATA", "/var/lib/pg20-peers/peers.json")
+PRESENCE = os.environ.get("PG20_FEED_PRESENCE", os.path.join(os.path.dirname(DATA), "presence.json"))
 SPOOL = os.environ.get("PG20_INBOX_SPOOL", "/var/lib/pg20-inbox")
 VALIDATED = os.path.join(SPOOL, "validated")
 TRACK = os.path.join(SPOOL, "track")                      # suivis créés par inbox-receive.py : <suivi>.json ; on y dépose <suivi>.ok
 TRACK_FILE_RE = re.compile(r"^[0-9a-f]{32}\.json$")
 BIND = os.environ.get("PG20_FEED_BIND", "127.0.0.1")
 PORT = int(os.environ.get("PG20_FEED_PORT", "8099"))
+# ------------------------------------------------------------------ TLS (correctif du 2026-10-10, point 2 de l'audit)
+# Le flux parle par défaut en HTTP clair, protégé par un jeton. Sur le réseau local, ce jeton (qui permet de retirer un poste
+# du carnet) est lisible par qui peut écouter. Ce service peut désormais chiffrer ses échanges : il suffit que l'unité systemd
+# lui fournisse le certificat et la clé (ceux du receveur, /etc/pg20/inbox.crt et .key, déjà présents sur la même machine) :
+#     LoadCredential=cert:/etc/pg20/inbox.crt
+#     LoadCredential=key:/etc/pg20/inbox.key
+# Sans ces fichiers, le service démarre EXACTEMENT comme avant (HTTP clair), donc ce changement ne casse rien tant que le
+# technicien n'a pas basculé son carnet sur https://.
+TLS_CERT = os.environ.get("PG20_FEED_TLS_CERT", "/etc/pg20/inbox.crt")
+TLS_KEY = os.environ.get("PG20_FEED_TLS_KEY", "/etc/pg20/inbox.key")
+
+def tls_disponible():
+    """Certificat et clé à utiliser, et si le chiffrement est possible.
+    Ordre de recherche : le fichier EXPLICITEMENT désigné (PG20_FEED_TLS_CERT / _KEY, ou les valeurs par défaut), puis le
+    dossier de crédentials systemd (LoadCredential=cert / key) s'il n'existe pas. Un fichier désigné mais absent ne masque
+    donc plus un certificat fourni par systemd, et réciproquement."""
+    cred = os.environ.get("CREDENTIALS_DIRECTORY")
+    candidats = [(TLS_CERT, TLS_KEY)]
+    if cred:
+        candidats.append((os.path.join(cred, "cert"), os.path.join(cred, "key")))
+    for cert, key in candidats:
+        if os.path.exists(cert) and os.path.exists(key):
+            return cert, key, True
+    return candidats[0][0], candidats[0][1], False
+
 RECENT_TTL = int(os.environ.get("PG20_FEED_RECENT_TTL", "1800"))    # annonce gardée après le relevé de la fiche par le PC (ou jusqu'à sa validation)
 FORGET = os.environ.get("PG20_FORGET_SPOOL", "/var/lib/pg20-forget")
 ARCHIVE = os.environ.get("PG20_ARCHIVE", "/var/lib/pg20-archive")      # copie des fiches (chiffrées pour le technicien) ; dossier créé par install-archive.sh
@@ -397,10 +427,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         path = parts.path
         if path == "/health":
             return self._send(200, b'{"ok": true}')
-        if path in ("/peers", "/records", "/orders", "/archive"):
+        if path in ("/peers", "/presence", "/records", "/orders", "/archive"):
             if not self._authorized():
                 return self._send(401, b'{"error": "unauthorized"}')
             query = parse_qs(parts.query)
+            if path == "/presence":
+                try:
+                    with open(PRESENCE, "rb") as f:
+                        data = json.loads(f.read())
+                    if not isinstance(data, dict) or not isinstance(data.get("presence"), dict):
+                        raise ValueError("bad data")
+                except OSError:
+                    return self._send(503, b'{"error": "no data yet"}')
+                except ValueError:
+                    return self._send(503, b'{"error": "bad data"}')
+                return self._json(200, data)
             if path == "/archive":
                 try:
                     offset = max(0, int(query.get("offset", ["0"])[0]))
@@ -560,4 +601,15 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 if __name__ == "__main__":
-    Server((BIND, PORT), Handler).serve_forever()
+    cert, key, actif = tls_disponible()
+    serveur = Server((BIND, PORT), Handler)
+    if actif:
+        # Chiffrement des échanges (le certificat est celui du receveur : le carnet vérifie son empreinte SHA-256).
+        contexte = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        contexte.minimum_version = ssl.TLSVersion.TLSv1_2
+        contexte.load_cert_chain(cert, key)
+        serveur.socket = contexte.wrap_socket(serveur.socket, server_side=True)
+        sys.stderr.write("pg20-peers-feed : écoute sur %s:%d (TLS, certificat %s)\n" % (BIND, PORT, cert))
+    else:
+        sys.stderr.write("pg20-peers-feed : écoute sur %s:%d (HTTP clair : aucun certificat fourni, PG20_FEED_TLS_CERT / _KEY)\n" % (BIND, PORT))
+    serveur.serve_forever()

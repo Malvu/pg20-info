@@ -41,6 +41,7 @@ param(
     [string]$ApiServer,                     # facultatif (RustDesk Pro / console web)
     [string]$Key,                           # clé publique du serveur (id_ed25519.pub)
     [string]$Password,                      # généré aléatoirement si absent (-AskPassword pour le demander à l'écran)
+    [switch]$NewPassword,                   # relance : tirer un mot de passe NEUF au lieu de reprendre celui déjà en place sur ce poste
     [ValidateRange(12, 64)][int]$PasswordLength = 20,
     [string]$OutDir,                        # dossier du CSV (défaut : dossier du script)
     [switch]$NoSaveCredentials,             # ne pas écrire le CSV
@@ -55,6 +56,7 @@ param(
     [switch]$NoInbox,                       # ne pas envoyer la fiche au serveur
     [string]$TermsPath,                     # texte des conditions d'installation (intégré à l'exe par Pg20-Exe-Compiler -TermsFile) : leur acceptation est exigée
     [switch]$AcceptTerms,                   # déploiement par script : accepte les conditions sans fenêtre (la preuve note « accepté par paramètre »)
+    [string]$ClientEmail,                   # adresse e-mail du client : avec -AcceptTerms, notée dans la preuve ; sinon elle est saisie dans la fenêtre d'acceptation
     [string]$AgentPath,                     # tâche de maintenance (Pg20-Client-Maintenance.ps1, intégrée à l'exe par Pg20-Exe-Compiler) : exécute un ordre de désinstallation signé par le technicien
     [string]$BrandName,                     # marque du technicien (intégrée à l'exe par Pg20-Exe-Compiler -BrandName) : en-tête de la fenêtre d'acceptation, titres
     [string]$LogoPath,                      # logo .png de la marque (intégré à l'exe par Pg20-Exe-Compiler -LogoFile)
@@ -555,15 +557,74 @@ function Close-LaunchExplorerWindow([string]$Dir) {
         }
         if ($hits.Count) {
             # Quit() ne suffit pas toujours (processus élevé face à un Explorateur normal) : on demande alors la fermeture à la fenêtre elle-même (WM_CLOSE)
-            Start-Sleep -Milliseconds 500
-            try { Add-Type -Namespace Pg20 -Name CloseWin -MemberDefinition '[DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h); [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);' -ErrorAction Stop } catch { }
-            foreach ($h in $hits) { try { $p = [IntPtr]$h; if ([Pg20.CloseWin]::IsWindow($p)) { [void][Pg20.CloseWin]::PostMessage($p, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) } } catch { } }
+            Close-WindowByHandle $hits
         }
     }
     catch { }
 }
+# Demande à Windows la fermeture d'une fenêtre par WM_CLOSE. Quit() de la coquille ne suffit pas toujours (processus élevé face à
+# un Explorateur normal) ; le type Win32 n'est déclaré qu'une fois par session PowerShell.
+function Close-WindowByHandle([object[]]$Handles) {
+    $hs = @($Handles | Where-Object { $_ })
+    if (-not $hs.Count) { return }
+    Start-Sleep -Milliseconds 500
+    try { Add-Type -Namespace Pg20 -Name CloseWin -MemberDefinition '[DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h); [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint m, IntPtr w, IntPtr l);' -ErrorAction Stop } catch { }
+    foreach ($h in $hs) {
+        try {
+            $p = [IntPtr]$h
+            if ([Pg20.CloseWin]::IsWindow($p)) { [void][Pg20.CloseWin]::PostMessage($p, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) }
+        }
+        catch { }
+    }
+}
+
+function Close-ExplorerWindowsForRoots([string[]]$Roots) {
+    $cibles = @($Roots | Where-Object { $_ } | ForEach-Object { ([IO.Path]::GetFullPath($_).TrimEnd('\')).ToLower() })
+    if (-not $cibles.Count) { return 0 }
+    $hits = @()
+    try {
+        $shell = New-Object -ComObject Shell.Application
+        foreach ($w in @($shell.Windows())) {
+            try {
+                if ([string]$w.FullName -notmatch '(?i)\\explorer\.exe$') { continue }
+                $loc = [string]$w.LocationURL
+                if ($loc -notmatch '^file:') { continue }
+                $chemin = ([Uri]::UnescapeDataString(([Uri]$loc).LocalPath).TrimEnd('\')).ToLower()
+                if ($cibles -contains $chemin) { $hits += [int64]$w.HWND; $w.Quit() }
+            }
+            catch { }
+        }
+    }
+    catch { }
+    Close-WindowByHandle $hits
+    return $hits.Count
+}
+
+# Correctif du 2026-10-10 (essai réel chez le technicien, 2e version) : Windows ouvre souvent une fenêtre à la RACINE de CHAQUE partition
+# d'un support branché. Sur le SSD de dépannage (partition dépannage + partition « TRANSFERT »), la fenêtre de TRANSFERT restait
+# affichée pendant toute l'installation : le script ne fermait que le dossier de l'exe. On ferme donc aussi les fenêtres des racines
+# des AUTRES partitions du même disque physique. La lettre de lecteur n'est jamais supposée : elle change selon le matériel branché.
+# Sécurité : on n'agit QUE si le disque qui porte l'exe est branché en USB (donc amovible). Un disque interne n'est jamais touché.
+# Pourquoi le bus et non le type de volume : certains SSD externes (le SanDisk du technicien) sont annoncés par Windows en « Fixed »
+# et non « Removable ». La 1re version testait le type de volume et refusait donc d'agir — d'où la fenêtre qui restait ouverte.
+function Close-LauncherMediaFolders([string]$Dir) {
+    if (-not $Dir) { return 0 }
+    try {
+        $lettre = ([IO.Path]::GetPathRoot([IO.Path]::GetFullPath($Dir))).TrimEnd('\', ':')
+        if (-not $lettre) { return 0 }
+        $disque = (Get-Partition -DriveLetter $lettre -ErrorAction Stop).DiskNumber
+        $bus = [string](Get-Disk -Number $disque -ErrorAction Stop).BusType
+        if ($bus -notin @('USB', 'SD', 'MMC')) { return 0 }      # disque interne : on ne touche à rien
+        $racines = @()
+        foreach ($p in @(Get-Partition -DiskNumber $disque -ErrorAction SilentlyContinue)) {
+            if ($p.DriveLetter) { $racines += ([string]$p.DriveLetter + ':\') }
+        }
+        return (Close-ExplorerWindowsForRoots $racines)
+    }
+    catch { return 0 }
+}
 # Empreinte NON réversible du matériel de ce poste : SHA-256 d'un identifiant de l'ordinateur (UUID de la carte mère, sinon numéro de série du BIOS, sinon de la carte mère)
-# précédé d'un texte propre à Pg20 Info, réduit à 32 caractères. Elle sert au technicien à reconnaître le MÊME ordinateur après une réinstallation, même si son nom a
+# précédé d'un texte propre à Info Pg20, réduit à 32 caractères. Elle sert au technicien à reconnaître le MÊME ordinateur après une réinstallation, même si son nom a
 # changé. Le numéro de série lui-même n'est jamais envoyé ; l'empreinte voyage dans la fiche chiffrée pour le technicien (le serveur ne la lit pas). Vide quand
 # l'ordinateur ne donne que des valeurs génériques (« Default string », « To be filled by O.E.M. », UUID tout à zéro ou tout à F...).
 function ConvertTo-HardwareFingerprint([string]$Uuid = '', [string]$BiosSerial = '', [string]$BoardSerial = '') {
@@ -848,12 +909,62 @@ function Test-ConsoleVisible {
 # Témoin pour le lanceur : l'interface est prête (il ferme son écran d'attente)
 function Set-ReadyFlag { try { if ($PSCommandPath) { [IO.File]::WriteAllText((Join-Path (Split-Path -Parent $PSCommandPath) 'ready.flag'), '1') } } catch { } }
 
+# Correctif du 2026-10-10 (audit A3) : COURSE ENTRE L'INSTALLEUR ET LA GESTION DU SERVICE.
+# « WaitForExit » n'attend QUE le processus de l'installeur : l'installeur MSI lance un service Windows (msiexec) et, à la
+# fin, RustDesk lui-même. La gestion du service pouvait donc commencer pendant que l'installation travaillait encore — c'est
+# le profil exact de l'incident « Start-Service » du 2026-10-05. On attend maintenant que TOUS ces processus aient disparu.
+# Correctif du 2026-10-15 : le RustDesk INSTALLÉ qui tourne (--service, --tray, --server, --cm, ou lancé sans option) ne s'arrête JAMAIS ; le compter
+# faisait attendre le délai maximal à chaque installation (5 min + 2 min, relevé le 2026-10-15 : installation de 9 minutes au lieu de 1 à 2). On ne compte
+# plus que le travail d'installation : msiexec, setup, l'installeur lui-même (rustdesk-<version>-x86_64.exe, rustdesk_install...), et un rustdesk.exe
+# lancé avec une option d'installation. Le démarrage du service reste protégé : Start-RustDeskService attend le service et le démarre autant de fois
+# qu'il faut dans son délai.
+function Get-InstallationEnCours {
+    $travail = '--(silent-install|install|install-service|uninstall|update)\b'
+    $res = @()
+    foreach ($p in @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)) {
+        $n = [IO.Path]::GetFileNameWithoutExtension([string]$p.Name).ToLower()
+        $ligne = [string]$p.CommandLine
+        $compte = $false
+        if ($n -eq 'msiexec' -or $n -eq 'setup') { $compte = $true }
+        elseif ($n -match '^rustdesk[-_]') { $compte = $true }                              # l'installeur (rustdesk-1.5.0-x86_64, rustdesk_install...)
+        elseif ($n -eq 'rustdesk' -and $ligne -match $travail) { $compte = $true }          # RustDesk lancé pour installer ou désinstaller
+        if ($compte) { $res += [pscustomobject]@{ ProcessName = $n; Id = [int]$p.ProcessId } }
+    }
+    return , $res
+}
+
+# Attend la fin RÉELLE de l'installation : plus aucun processus d'installation, et le service a fini d'être créé.
+# Renvoie $true si le calme est obtenu, $false si le délai est dépassé (on continue quand même : l'appelant décide).
+function Wait-InstallationQuiet {
+    param([int]$TimeoutSec = 300, [int]$StableSec = 4, [string]$Exe = '')
+    $debut = Get-Date; $deadline = $debut.AddSeconds($TimeoutSec)
+    $calmeDepuis = $null; $dernier = ''
+    while ((Get-Date) -lt $deadline) {
+        $encours = Get-InstallationEnCours
+        if ($encours.Count) {
+            $calmeDepuis = $null
+            $noms = (($encours | ForEach-Object { $_.ProcessName }) | Sort-Object -Unique) -join ', '
+            if ($noms -ne $dernier) { Write-Detail ("Installation encore en cours (" + $noms + ") : attente avant de toucher au service."); $dernier = $noms }
+        }
+        else {
+            if (-not $calmeDepuis) { $calmeDepuis = Get-Date }
+            elseif (((Get-Date) - $calmeDepuis).TotalSeconds -ge $StableSec) { return $true }
+        }
+        Start-Sleep 2
+    }
+    Write-Warn ("L'installation n'a pas rendu la main en $TimeoutSec s : on continue, mais surveillez le service RustDesk.")
+    return $false
+}
+
 # Service RustDesk : l'installeur le crée et le démarre lui-même, parfois lentement (antivirus, réinstallation juste après un effacement). On attend qu'il
 # existe, puis on le démarre autant de fois qu'il le faut, dans un délai total, au lieu d'échouer au premier refus de Windows. $ScCommand : (tests) remplaçable.
 $ScCommand = 'sc.exe'
 function Start-RustDeskService {
-    param([int]$TimeoutSec = 120, [int]$InstallAfterSec = 45)
+    param([int]$TimeoutSec = 180, [int]$InstallAfterSec = 60)
     $ErrorActionPreference = 'Continue'
+    # On ne touche pas au service tant que l'installation travaille (voir Wait-InstallationQuiet) : gérer un service
+    # pendant que son installeur le crée est ce qui produisait l'échec « Start-Service ».
+    [void](Wait-InstallationQuiet -TimeoutSec 120)
     $start = Get-Date; $deadline = $start.AddSeconds($TimeoutSec); $lastErr = ''; $installTried = $false
     while ($true) {
         $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
@@ -952,6 +1063,92 @@ function Protect-ForTechnician([string]$Plain, [string]$PublicKeyXml) {
     finally { $rsa.Dispose() }
 }
 
+# Correctif du 2026-10-10 (audit B, « la relance de l'exe n'est pas idempotente ») : SECOURS LOCAL DU MOT DE PASSE.
+# Le fichier acces-<ID>.enc est chiffré pour le TECHNICIEN (clé publique) : l'exe ne peut donc pas le relire. Or une relance de
+# l'exe sur le MÊME poste et la MÊME identité doit pouvoir REPRENDRE le mot de passe déjà en place : sinon un mot de passe neuf
+# est tiré à chaque passage, l'ancienne fiche du carnet devient obsolète, et le technicien ne sait plus lequel fonctionne.
+# On garde donc une copie chiffrée par DPAPI en portée MACHINE : lisible par ce poste (donc par l'exe), illisible ailleurs et par
+# un autre compte. Ce fichier n'est jamais envoyé, et il est supprimé avec le dossier lors d'une réinstallation propre.
+$script:DpapiEntropy = [Text.Encoding]::UTF8.GetBytes('Pg20-Info-acces-local-v1')
+# ProtectedData vit dans System.Security.dll : sans ce chargement explicite, l'appel échoue (« type introuvable »). On le fait une
+# fois, sans bloquer l'installation : si l'assembly manquait, seule la reprise du mot de passe à la relance serait perdue.
+try { Add-Type -AssemblyName System.Security -ErrorAction Stop } catch { }
+
+function Get-AccessLocalPath([string]$Id) {
+    Join-Path (Join-Path $env:ProgramData 'Pg20-Info') ('acces-' + $Id + '.dpapi')
+}
+
+function Save-AccessLocal([string]$Id, [string]$Plain) {
+    try {
+        $d = Join-Path $env:ProgramData 'Pg20-Info'
+        if (-not (Test-Path -LiteralPath $d)) { $null = New-Item -ItemType Directory -Path $d -Force }
+        $octets = [Text.Encoding]::UTF8.GetBytes($Plain)
+        $chiffre = [Security.Cryptography.ProtectedData]::Protect($octets, $script:DpapiEntropy, [Security.Cryptography.DataProtectionScope]::LocalMachine)
+        $p = Get-AccessLocalPath $Id
+        [IO.File]::WriteAllBytes($p, $chiffre)
+        # Le fichier est écrit : à partir d'ici la fonction a RÉUSSI. Le durcissement des droits est un plus, qui ne doit jamais
+        # faire croire à un échec (défaut constaté au banc d'essai du 2026-10-10 : un appel de trace indisponible faisait
+        # ressortir « saved = False » alors que le mot de passe était bel et bien enregistré et relisible).
+        # Droits visés : administrateurs, SYSTEM, et le COMPTE COURANT — ce dernier est indispensable, sinon un exe lancé par un
+        # compte non administrateur ne pourrait plus relire son propre fichier.
+        $avertissement = ''
+        try {
+            # Correctif du 2026-10-15 : la syntaxe « *S-1-5-32-544 » est celle d'icacls ; passée à FileSystemAccessRule sous forme de TEXTE elle
+            # ne se traduit pas (« Impossible de traduire certaines ou toutes les références d'identité », à chaque installation) et les droits
+            # n'étaient jamais restreints. On passe des objets SecurityIdentifier, indépendants de la langue de Windows.
+            $sid = $null
+            try { $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User } catch { }
+            $acl = Get-Acl -LiteralPath $p
+            $acl.SetAccessRuleProtection($true, $false)                  # on coupe l'héritage : rien d'autre que ces règles
+            $identites = @((New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')), (New-Object Security.Principal.SecurityIdentifier('S-1-5-18')))   # administrateurs, système
+            if ($sid) { $identites += $sid }
+            foreach ($id2 in $identites) {
+                $acl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($id2, 'FullControl', 'Allow')))
+            }
+            Set-Acl -LiteralPath $p -AclObject $acl
+        }
+        catch { $avertissement = $_.Exception.Message }
+        [pscustomobject]@{ saved = $true; path = $p; message = $avertissement }
+    }
+    catch { [pscustomobject]@{ saved = $false; path = ''; message = $_.Exception.Message } }
+}
+
+function Get-AccessLocal([string]$Id) {
+    try {
+        $p = Get-AccessLocalPath $Id
+        if (-not (Test-Path -LiteralPath $p)) { return $null }
+        $chiffre = [IO.File]::ReadAllBytes($p)
+        $clair = [Security.Cryptography.ProtectedData]::Unprotect($chiffre, $script:DpapiEntropy, [Security.Cryptography.DataProtectionScope]::LocalMachine)
+        $txt = [Text.Encoding]::UTF8.GetString($clair)
+        if ($txt.Length -ge 12 -and $txt.Length -le 128) { return $txt }
+        return $null
+    }
+    catch { return $null }
+}
+
+# Correctif du 2026-10-10 (urgence) : le mot de passe permanent était appliqué à RustDesk AVANT d'être envoyé ou enregistré. Une panne entre
+# les deux (antivirus, coupure, mise en veille) laissait un poste installé et joignable dont PERSONNE ne connaissait le mot de passe :
+# le technicien ne pouvait plus s'y connecter, et rien ne permettait de le retrouver. On écrit donc un secours chiffré AVANT d'appliquer le
+# mot de passe, et la preuve en clair (« acces-<ID>.txt », lisible seulement par les administrateurs) seulement si la clé publique manque.
+function Save-AccessBackup([string]$Id, [string]$Plain, [string]$PublicKeyXml, [bool]$WithPlainFallback) {
+    $d = Join-Path $env:ProgramData 'Pg20-Info'
+    if (-not (Test-Path -LiteralPath $d)) { $null = New-Item -ItemType Directory -Path $d -Force }
+    $res = [ordered]@{ saved = $false; path = '' }
+    if ($PublicKeyXml) {
+        $enc = Protect-ForTechnician $Plain $PublicKeyXml
+        $p = Join-Path $d ('acces-' + $Id + '.enc')
+        [IO.File]::WriteAllText($p, $enc, (New-Object Text.UTF8Encoding($false)))
+        $res.saved = $true; $res.path = $p; return [pscustomobject]$res
+    }
+    if ($WithPlainFallback) {
+        $p = Join-Path $d ('acces-' + $Id + '.txt')
+        $txt = "Poste : $env:COMPUTERNAME`r`nID RustDesk : $Id`r`nMot de passe permanent : $Plain`r`nEcrit : $(Get-Date -Format 'yyyy-MM-dd HH:mm')`r`nCe fichier est lisible par les administrateurs du poste : transferez-le dans votre gestionnaire de mots de passe, puis effacez-le.`r`n"
+        [IO.File]::WriteAllText($p, $txt, (New-Object Text.UTF8Encoding($true)))
+        $res.saved = $true; $res.path = $p
+    }
+    [pscustomobject]$res
+}
+
 # Fiche enregistrée dans le CSV ; avec une clé publique, la colonne Password reste vide et PasswordEnc contient le mot de passe chiffré
 function New-DeploymentRecord {
     param([string]$ClientName, [string]$ComputerName, [string]$Id, [string]$Password, [string]$Version, [string]$ServerLabel, [string]$TechPublicKey)
@@ -982,34 +1179,62 @@ function Get-TermsInfo([string]$Path) {
 
 # La preuve : qui a accepté, quand, quel texte (empreinte), comment (fenêtre ou paramètre), combien de temps la fenêtre est restée ouverte.
 # Elle part dans la fiche chiffrée (et dans la ligne chiffrée de la clé USB) ; le serveur y ajoute sa propre heure de réception.
-function New-ConsentRecord($Terms, [string]$Name, [string]$Mode, [int]$Seconds) {
+function New-ConsentRecord($Terms, [string]$Name, [string]$Mode, [int]$Seconds, [string]$Email = '', [int]$ReadSeconds = -1) {
     [ordered]@{
         v = 1; version = $Terms.version; sha256 = $Terms.sha256; mode = $Mode; name = $Name
         at = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'); seconds = $Seconds
         user = $env:USERNAME; host = $env:COMPUTERNAME
+        email = $Email; readEnd = $ReadSeconds        # readEnd : secondes écoulées avant que le texte ait été lu jusqu'à la fin (-1 : non contrôlé)
     }
 }
 
 # Version console (session sans fenêtres, ou fenêtre impossible à ouvrir) : texte affiché, puis nom saisi ET mot « J'ACCEPTE »
-function Read-TermsConsole($Terms, [string]$Brand = '', [string]$ClientName = '') {
+function Test-EmailAddress([string]$Texte) { return [bool]($Texte.Trim() -match '^[^@\s]+@[^@\s]+\.[^@\s]{2,}$') }
+
+function Read-TermsConsole($Terms, [string]$Brand = '', [string]$ClientName = '', [switch]$AskEmail) {
     $t0 = Get-Date
     if ($Brand) { Write-Host $Brand -ForegroundColor Cyan }
     if ($ClientName) { Write-Host "Installation pour : $ClientName" }
     Write-Host ''
     Write-Host $Terms.text
     Write-Host ''
+    [void](Read-Host 'Appuyez sur Entrée quand vous avez lu le texte ci-dessus en entier')
+    $readEnd = [int]((Get-Date) - $t0).TotalSeconds
+    $email = ''
+    if ($AskEmail) {
+        for ($i = 0; $i -lt 3 -and -not (Test-EmailAddress $email); $i++) { $email = (Read-Host "Adresse e-mail du client").Trim() }
+        if (-not (Test-EmailAddress $email)) { return [pscustomobject]@{ accepted = $false; name = ''; email = ''; readEnd = -1; seconds = 0 } }
+    }
     $name = (Read-Host 'Nom et prénom de la personne qui accepte (Entrée sans rien saisir = refuser)').Trim()
-    if ($name.Length -lt 3) { return [pscustomobject]@{ accepted = $false; name = ''; seconds = 0 } }
+    if ($name.Length -lt 3) { return [pscustomobject]@{ accepted = $false; name = ''; email = ''; readEnd = -1; seconds = 0 } }
     $word = (Read-Host "Tapez J'ACCEPTE pour accepter ces conditions").Trim()
-    [pscustomobject]@{ accepted = ($word -ieq "J'ACCEPTE"); name = $name; seconds = [int]((Get-Date) - $t0).TotalSeconds }
+    [pscustomobject]@{ accepted = ($word -ieq "J'ACCEPTE"); name = $name; email = $email; readEnd = $readEnd; seconds = [int]((Get-Date) - $t0).TotalSeconds }
 }
 
-# Fenêtre d'acceptation : le texte à lire, une case, le nom de la personne qui accepte. « Accepter » reste grisé tant que la case n'est pas cochée
-# et que le nom fait moins de 3 caractères ; fermer la fenêtre ou « Refuser » = refus (rien n'est installé). -OnShown : crochet pour les tests.
-function Show-TermsDialog($Terms, [scriptblock]$OnShown = $null, [string]$Brand = '', [string]$LogoPath = '', [string]$ClientName = '', [string]$WorkArea = '', [switch]$Light) {
+# Fenêtre d'acceptation : le texte à lire, une case, le nom de la personne qui accepte (et, hors client léger, son adresse e-mail). Le texte doit être LU JUSQU'À LA FIN :
+# tant qu'il n'a pas été défilé jusqu'en bas, la case, le nom et l'e-mail restent grisés (un texte qui tient sans défiler est considéré comme lu). « Accepter » reste grisé tant que
+# la case n'est pas cochée, que le nom fait moins de 3 caractères ou que l'e-mail n'a pas la forme d'une adresse ; fermer la fenêtre ou « Refuser » = refus (rien n'est installé). -OnShown : crochet pour les tests.
+function Show-TermsDialog($Terms, [scriptblock]$OnShown = $null, [string]$Brand = '', [string]$LogoPath = '', [string]$ClientName = '', [string]$WorkArea = '', [switch]$Light, [switch]$AskEmail) {
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing
     [System.Windows.Forms.Application]::EnableVisualStyles()
-    $state = @{ accepted = $false; name = ''; seconds = 0 }
+    # Le texte est-il défilé jusqu'en bas ? (barre de défilement du champ de texte ; sans barre, ou en cas de doute, on ne bloque pas la personne)
+    if (-not ('Pg20Scroll' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class Pg20Scroll {
+    [StructLayout(LayoutKind.Sequential)] public struct SCROLLINFO { public int cbSize; public int fMask; public int nMin; public int nMax; public int nPage; public int nPos; public int nTrackPos; }
+    [DllImport("user32.dll")] private static extern bool GetScrollInfo(IntPtr hwnd, int bar, ref SCROLLINFO si);
+    public static bool AtEnd(IntPtr hwnd) {
+        SCROLLINFO si = new SCROLLINFO(); si.cbSize = Marshal.SizeOf(typeof(SCROLLINFO)); si.fMask = 0x17;
+        if (!GetScrollInfo(hwnd, 1, ref si)) return true;
+        if (si.nMax - si.nMin + 1 <= si.nPage) return true;
+        return si.nPos + si.nPage >= si.nMax;
+    }
+}
+'@
+    }
+    $state = @{ accepted = $false; name = ''; email = ''; readEnd = -1; seconds = 0 }
     $sw = [Diagnostics.Stopwatch]::StartNew()
 
     # En-tête facultatif : logo + marque du technicien + « Installation pour : <client> » (nom figé dans l'exe). Les autres contrôles descendent de $dy.
@@ -1029,13 +1254,15 @@ function Show-TermsDialog($Terms, [scriptblock]$OnShown = $null, [string]$Brand 
     if ($WorkArea) { $q = $WorkArea.Split(','); $wa = New-Object System.Drawing.Rectangle([int]$q[0], [int]$q[1], [int]$q[2], [int]$q[3]) }
     else { $wa = [System.Windows.Forms.Screen]::FromPoint([System.Windows.Forms.Cursor]::Position).WorkingArea }
     $chrome = [System.Windows.Forms.SystemInformation]::CaptionHeight + 2 * [System.Windows.Forms.SystemInformation]::FixedFrameBorderSize.Height + 8
-    $need = 610 + $dy + $chrome + 16
+    $mh = $(if ($AskEmail) { 60 } else { 0 })        # place de la ligne « e-mail »
+    $extra = 26 + $mh                                 # 26 : ligne « faites défiler jusqu'à la fin »
+    $need = 610 + $extra + $dy + $chrome + 16
     $ex = 0; if ($need -gt $wa.Height) { $ex = -[Math]::Min(350 - 140, $need - $wa.Height) }      # au plus 210 px de moins : la zone de texte garde 140 px
     $boxH = 350 + $ex
 
     $f = New-Object System.Windows.Forms.Form
     $f.Text = $(if ($Brand) { "$Brand - " } else { '' }) + $(if ($Light) { 'Conditions de la session de dépannage' } else { "Conditions d'installation de l'accès à distance" })
-    $f.ClientSize = New-Object System.Drawing.Size(700, (610 + $dy + $ex))
+    $f.ClientSize = New-Object System.Drawing.Size(700, (610 + $extra + $dy + $ex))
     $f.StartPosition = 'Manual'; $f.TopMost = $true; $f.FormBorderStyle = 'FixedDialog'
     $f.MaximizeBox = $false; $f.MinimizeBox = $false; $f.ControlBox = $false
     $f.Font = New-Object System.Drawing.Font('Segoe UI', 10)
@@ -1067,7 +1294,7 @@ function Show-TermsDialog($Terms, [scriptblock]$OnShown = $null, [string]$Brand 
     }
 
     $title = New-Object System.Windows.Forms.Label
-    $title.Text = "Lisez ces conditions avant d'installer"
+    $title.Text = $(if ($Light) { "Lisez ces conditions avant d'installer" } else { "Lisez ce contrat et ces conditions avant d'installer" })
     $title.Font = New-Object System.Drawing.Font('Segoe UI', 13, [System.Drawing.FontStyle]::Bold)
     $title.Location = New-Object System.Drawing.Point(14, (12 + $dy)); $title.Size = New-Object System.Drawing.Size(672, 28)
 
@@ -1077,45 +1304,76 @@ function Show-TermsDialog($Terms, [scriptblock]$OnShown = $null, [string]$Brand 
     $box.Text = ($Terms.text -replace "`n", "`r`n")
 
     $chk = New-Object System.Windows.Forms.CheckBox
-    $chk.Text = "J'ai lu ces conditions et je les accepte."
-    $chk.Location = New-Object System.Drawing.Point(14, (408 + $dy + $ex)); $chk.Size = New-Object System.Drawing.Size(672, 26)
+    $chk.Text = $(if ($Light) { "J'ai lu ces conditions et je les accepte." } else { "J'ai lu ce contrat et ces conditions en entier, et je les accepte." })
+    $chk.Location = New-Object System.Drawing.Point(14, (434 + $dy + $ex)); $chk.Size = New-Object System.Drawing.Size(672, 26)
 
     $lbl = New-Object System.Windows.Forms.Label
     $lbl.Text = 'Nom et prénom de la personne qui accepte :'
-    $lbl.Location = New-Object System.Drawing.Point(14, (444 + $dy + $ex)); $lbl.Size = New-Object System.Drawing.Size(672, 22)
+    $lbl.Location = New-Object System.Drawing.Point(14, (470 + $dy + $ex)); $lbl.Size = New-Object System.Drawing.Size(672, 22)
     $tb = New-Object System.Windows.Forms.TextBox
-    $tb.Location = New-Object System.Drawing.Point(14, (470 + $dy + $ex)); $tb.Size = New-Object System.Drawing.Size(420, 28)
+    $tb.Location = New-Object System.Drawing.Point(14, (496 + $dy + $ex)); $tb.Size = New-Object System.Drawing.Size(420, 28)
+    $lblm = $null; $mail = $null
+    if ($AskEmail) {
+        $lblm = New-Object System.Windows.Forms.Label
+        $lblm.Text = 'Adresse e-mail du client :'
+        $lblm.Location = New-Object System.Drawing.Point(14, (532 + $dy + $ex)); $lblm.Size = New-Object System.Drawing.Size(672, 22)
+        $mail = New-Object System.Windows.Forms.TextBox
+        $mail.Location = New-Object System.Drawing.Point(14, (558 + $dy + $ex)); $mail.Size = New-Object System.Drawing.Size(420, 28)
+    }
+    # Tant que le texte n'est pas lu jusqu'à la fin : case, nom et e-mail grisés, et un rappel sous le texte
+    $rd = New-Object System.Windows.Forms.Label
+    $rd.UseMnemonic = $false
+    $rd.Text = $(if ($Light) { "Faites défiler le texte jusqu'à la fin : vous pourrez alors accepter." } else { "Faites défiler le contrat jusqu'à la fin : vous pourrez alors accepter." })
+    $rd.ForeColor = [System.Drawing.Color]::FromArgb(176, 96, 0)
+    $rd.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
+    $rd.Location = New-Object System.Drawing.Point(14, (402 + $dy + $ex)); $rd.Size = New-Object System.Drawing.Size(672, 24)
+    $chk.Enabled = $false; $tb.Enabled = $false; if ($mail) { $mail.Enabled = $false }
 
     $ok = New-Object System.Windows.Forms.Button
     $ok.Text = $(if ($Light) { 'Accepter et démarrer' } else { 'Accepter et installer' }); $ok.Enabled = $false
     $ok.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
-    $ok.Location = New-Object System.Drawing.Point(14, (520 + $dy + $ex)); $ok.Size = New-Object System.Drawing.Size(250, 46)
+    $ok.Location = New-Object System.Drawing.Point(14, (546 + $dy + $ex + $mh)); $ok.Size = New-Object System.Drawing.Size(250, 46)
     $no = New-Object System.Windows.Forms.Button
     $no.Text = 'Refuser et quitter'
-    $no.Location = New-Object System.Drawing.Point(280, (520 + $dy + $ex)); $no.Size = New-Object System.Drawing.Size(200, 46)
+    $no.Location = New-Object System.Drawing.Point(280, (546 + $dy + $ex + $mh)); $no.Size = New-Object System.Drawing.Size(200, 46)
     $hint = New-Object System.Windows.Forms.Label
-    $hint.Text = 'Une copie de ces conditions et de votre acceptation sera enregistrée sur ce PC.'
+    $hint.Text = $(if ($Light) { 'Une copie de ces conditions et de votre acceptation sera enregistrée sur ce PC.' } else { 'Une copie de ce contrat et de votre acceptation sera enregistrée sur ce PC.' })
     $hint.ForeColor = [System.Drawing.Color]::FromArgb(90, 90, 90)
-    $hint.Location = New-Object System.Drawing.Point(14, (574 + $dy + $ex)); $hint.Size = New-Object System.Drawing.Size(672, 22)
-    $f.Controls.AddRange(@($head + @($title, $box, $chk, $lbl, $tb, $ok, $no, $hint)))
+    $hint.Location = New-Object System.Drawing.Point(14, (600 + $dy + $ex + $mh)); $hint.Size = New-Object System.Drawing.Size(672, 22)
+    $f.Controls.AddRange(@($head + @($title, $box, $rd, $chk, $lbl, $tb) + @($lblm, $mail | Where-Object { $_ }) + @($ok, $no, $hint)))
     $f.CancelButton = $no
 
-    $update = { $ok.Enabled = ($chk.Checked -and $tb.Text.Trim().Length -ge 3) }
+    $update = { $ok.Enabled = ($state.readEnd -ge 0 -and $chk.Checked -and $tb.Text.Trim().Length -ge 3 -and (-not $mail -or (Test-EmailAddress $mail.Text))) }
     $chk.Add_CheckedChanged($update)
     $tb.Add_TextChanged($update)
+    if ($mail) { $mail.Add_TextChanged($update) }
+    # Toutes les 150 ms : le texte est-il arrivé en bas ? Alors le rappel devient une confirmation et les champs se dégrisent.
+    $timer = New-Object System.Windows.Forms.Timer
+    $timer.Interval = 150
+    $tick = {
+        if ($state.readEnd -lt 0 -and [Pg20Scroll]::AtEnd($box.Handle)) {
+            $state.readEnd = [int]$sw.Elapsed.TotalSeconds
+            $rd.Text = [string][char]0x2714 + ' Texte lu jusqu''à la fin.'; $rd.ForeColor = [System.Drawing.Color]::FromArgb(23, 101, 58)
+            $chk.Enabled = $true; $tb.Enabled = $true; if ($mail) { $mail.Enabled = $true }
+            $timer.Stop(); & $update
+        }
+    }
+    $timer.Add_Tick($tick)
     $ok.Add_Click({
-        $state.accepted = $true; $state.name = $tb.Text.Trim(); $state.seconds = [int]$sw.Elapsed.TotalSeconds
+        $state.accepted = $true; $state.name = $tb.Text.Trim(); $state.email = $(if ($mail) { $mail.Text.Trim() } else { '' }); $state.seconds = [int]$sw.Elapsed.TotalSeconds
         $f.Close()
     })
     $no.Add_Click({ $f.Close() })
     $f.Add_Shown({
         $f.Activate(); $box.Select(0, 0)
-        if ($OnShown) { & $OnShown $f @{ box = $box; check = $chk; name = $tb; ok = $ok; cancel = $no } }
+        $timer.Start(); & $tick                                      # un texte qui tient sans défiler est lu d'emblée
+        if ($OnShown) { & $OnShown $f @{ box = $box; check = $chk; name = $tb; mail = $mail; read = $rd; ok = $ok; cancel = $no; tick = $tick; state = $state } }
     })
     [void]$f.ShowDialog()
+    $timer.Stop(); $timer.Dispose()
     $f.Dispose()
     if ($logo) { $logo.Dispose() }
-    [pscustomobject]@{ accepted = [bool]$state.accepted; name = [string]$state.name; seconds = [int]$state.seconds }
+    [pscustomobject]@{ accepted = [bool]$state.accepted; name = [string]$state.name; email = [string]$state.email; readEnd = [int]$state.readEnd; seconds = [int]$state.seconds }
 }
 
 # Copie des conditions et de l'acceptation, laissée sur le PC du client (C:\ProgramData\Pg20-Info) : il garde sa propre preuve.
@@ -1130,6 +1388,8 @@ function Save-ConsentReceipt($Consent, $Terms, [string]$RdId, [string]$ClientNam
         "Session Windows     : $($Consent.user)",
         "ID RustDesk         : $RdId",
         "Accepté par         : $($Consent.name)",
+        "Adresse e-mail      : $($Consent.email)",
+        "Lecture du texte    : $(if ([int]$Consent.readEnd -ge 0) { 'défilé jusqu''à la fin après ' + $Consent.readEnd + ' s' } else { 'non contrôlée' })",
         "Date (heure du PC)  : $((Get-Date).ToString('dd.MM.yyyy HH:mm:ss'))",
         "Mode d'acceptation  : $($Consent.mode)",
         "Texte               : version $($Consent.version), empreinte SHA-256 $($Consent.sha256)", '',
@@ -1475,7 +1735,7 @@ function Uninstall-RustDeskFully {
         $hasTask = $false
         try { $hasTask = [bool](Get-ScheduledTask -TaskName $AgentTask -ErrorAction SilentlyContinue) } catch { }
         if ($hasTask -or (Test-Path -LiteralPath $agDir)) {
-            & $say 'Suppression de la tâche de maintenance Pg20 Info'
+            & $say 'Suppression de la tâche de maintenance Info Pg20'
             try { Unregister-ScheduledTask -TaskName $AgentTask -Confirm:$false -ErrorAction SilentlyContinue } catch { }
             if (Test-Path -LiteralPath $agDir) {
                 Remove-Item -LiteralPath $agDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -1571,7 +1831,7 @@ function Install-MaintenanceAgent {
         $principal = $(if ($TestAsCurrentUser) { New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited }
                        else { New-ScheduledTaskPrincipal -UserId 'S-1-5-18' -LogonType ServiceAccount -RunLevel Highest })
         Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers -Settings $settings -Principal $principal -Force `
-            -Description "Pg20 Info : désinstalle RustDesk de ce poste, uniquement sur ordre signé du technicien (conditions d'installation, point 2)." | Out-Null
+            -Description "Info Pg20 : désinstalle RustDesk de ce poste, uniquement sur ordre signé du technicien (voir les conditions d'installation acceptées)." | Out-Null
         if (-not (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue)) { throw 'la tâche planifiée est introuvable après sa création' }
         [pscustomobject]@{ ok = $true; message = ''; dir = $Dir; task = $TaskName }
     }
@@ -1690,6 +1950,23 @@ if ($LaunchDir) {         # noté dans le journal (sans rien afficher) : permet 
     Write-Detail ("Dossier de l'exe : {0} ; type de disque : {1} ; éjection automatique après validation : {2}" -f $LaunchDir, $driveType, $(if ($script:CanEject) { 'oui' } else { 'non' }))
 }
 
+# ---------------------------------------------------------------- Fermeture de la fenêtre de l'Explorateur (au plus tôt, ajout du 2026-10-10)
+# La fenêtre qui affiche le dossier de l'exe (clé USB, SSD) n'a plus à rester ouverte dès que l'installation démarre. Elle était fermée plus
+# tard (après l'acceptation des conditions, ou seulement pour le client léger) : elle restait donc affichée pendant toute la lecture du
+# contrat. Elle est maintenant fermée ICI, à l'entrée du script. Le lanceur de l'exe la ferme aussi dès le double-clic : dans ce cas le
+# drapeau -ExplorerClosed est posé et on ne refait rien. Sans -LaunchDir (script lancé à la main), on prend le dossier du script.
+if ($interactive -and -not $ExplorerClosed) {
+    $dirToClose = $LaunchDir
+    if (-not $dirToClose -and $PSScriptRoot) { $dirToClose = $PSScriptRoot }
+    if ($dirToClose) { try { Close-LaunchExplorerWindow $dirToClose } catch { } }
+}
+# Correctif du 2026-10-10 (2e version, apres essai reel chez le technicien) : les AUTRES fenetres du meme support
+# amovible (partition « TRANSFERT » du SSD, par exemple) sont fermees ICI, HORS de la condition ci-dessus.
+# La 1re version etait placee A L'INTERIEUR : le lanceur posant le drapeau -ExplorerClosed, elle n'etait jamais
+# executee, et la fenetre TRANSFERT restait affichee. Cette fonction ne fait rien si le support n'est pas amovible.
+$dirMedia = if ($LaunchDir) { $LaunchDir } else { $PSScriptRoot }
+if ($interactive -and $dirMedia) { try { [void](Close-LauncherMediaFolders $dirMedia) } catch { } }
+
 # ---------------------------------------------------------------- Conditions d'installation
 # Avec un texte de conditions (-TermsPath, intégré à l'exe par Pg20-Exe-Compiler -TermsFile), RIEN n'est installé tant qu'elles ne sont pas acceptées :
 # fenêtre à l'écran, ou -AcceptTerms (déploiement par script : la preuve note « accepté par paramètre »). Refus = code de sortie 20 ; mode silencieux
@@ -1700,21 +1977,22 @@ if ($TermsPath) {
     $terms = Get-TermsInfo $TermsPath
     if (-not $terms.text.Trim()) { throw 'Le texte des conditions est vide.' }
     if ($AcceptTerms) {
-        $consent = New-ConsentRecord $terms '(accepté par paramètre)' 'parametre' 0
+        if ($ClientEmail -and -not (Test-EmailAddress $ClientEmail)) { throw "Adresse e-mail invalide (-ClientEmail) : $ClientEmail" }
+        $consent = New-ConsentRecord $terms '(accepté par paramètre)' 'parametre' 0 ($ClientEmail.Trim()) -1
     }
     elseif ($interactive) {
         $ans = $null
         Set-ReadyFlag
-        try { $ans = Show-TermsDialog $terms -Brand $BrandName -LogoPath $LogoPath -ClientName $ClientName -Light:$Leger }
+        try { $ans = Show-TermsDialog $terms -Brand $BrandName -LogoPath $LogoPath -ClientName $ClientName -Light:$Leger -AskEmail:(-not $Leger) }
         catch {
             if (-not (Test-ConsoleVisible)) { exit 30 }          # ni fenêtre ni console visible : le lanceur relance avec une console (-NoGui)
-            $ans = Read-TermsConsole $terms -Brand $BrandName -ClientName $ClientName
+            $ans = Read-TermsConsole $terms -Brand $BrandName -ClientName $ClientName -AskEmail:(-not $Leger)
         }
         if (-not $ans.accepted) {
             Write-Warn "Conditions refusées : rien n'a été installé ni modifié."
             exit 20
         }
-        $consent = New-ConsentRecord $terms $ans.name 'dialogue' $ans.seconds
+        $consent = New-ConsentRecord $terms $ans.name 'dialogue' $ans.seconds $ans.email $ans.readEnd
     }
     else {
         Write-Warn "Cette installation exige l'acceptation des conditions : ajoutez -AcceptTerms (avec l'exe : /accept) si le client les a acceptées. Rien n'a été installé."
@@ -1805,6 +2083,12 @@ else {
     while (-not (Test-Path $RdExe) -and (Get-Date) -lt $deadline) { Start-Sleep 2 }
     if (-not (Test-Path $RdExe)) { throw 'RustDesk introuvable après installation (délai de 90 s dépassé).' }
     Write-Ok 'RustDesk installé'
+    # Correctif du 2026-10-10 (audit A3) : avant de toucher au service, on attend que l'installeur ET ses processus fils
+    # (msiexec, RustDesk lancé en fin d'installation) aient réellement terminé. Sans cela, démarrer ou installer le service
+    # pendant que l'installation travaille produisait un échec « Start-Service » (incident du 2026-10-05).
+    Write-Step 'Attente de la fin complète de l''installation'
+    [void](Wait-InstallationQuiet -TimeoutSec 300)
+    Write-Ok 'Installation terminée, le service peut être géré'
 }
 
 # ---------------------------------------------------------------- Service Windows
@@ -1834,12 +2118,31 @@ if ($ConfigString) {
     Invoke-RustDesk '--config', $ConfigString | Out-Null
 }
 elseif ($Server) {
-    Write-Step "Application du serveur $Server"
-    Invoke-RustDesk '--option', 'custom-rendezvous-server', $Server | Out-Null
-    Invoke-RustDesk '--option', 'relay-server', $(if ($Relay) { $Relay } else { $Server }) | Out-Null
-    if ($ApiServer) { Invoke-RustDesk '--option', 'api-server', $ApiServer | Out-Null }
-    if ($Key)       { Invoke-RustDesk '--option', 'key', $Key | Out-Null }
-    else            { Write-Warn 'Aucune clé (-Key) fournie : la connexion chiffrée au serveur ne sera pas vérifiée.' }
+    $serverReadBack = ''
+    foreach ($essai in 1..2) {
+        if ($essai -eq 2) { Write-Warn "Configuration du serveur à reprendre (valeur relue : « $serverReadBack »)." }
+        Write-Step "Application du serveur $Server"
+        Invoke-RustDesk '--option', 'custom-rendezvous-server', $Server | Out-Null
+        Invoke-RustDesk '--option', 'relay-server', $(if ($Relay) { $Relay } else { $Server }) | Out-Null
+        if ($ApiServer) { Invoke-RustDesk '--option', 'api-server', $ApiServer | Out-Null }
+        if ($Key)       { Invoke-RustDesk '--option', 'key', $Key | Out-Null }
+        else            { Write-Warn 'Aucune clé (-Key) fournie : la connexion chiffrée au serveur ne sera pas vérifiée.' }
+        # Contrôle du 2026-10-10 : on RELIT l'option pour vérifier qu'elle a bien été prise en compte. Sans ce contrôle, un poste pouvait rester
+        # sur le serveur PUBLIC de RustDesk tout en ayant envoyé sa fiche : le technicien croyait le poste déployé et la connexion échouait sans
+        # explication. On retente une fois, puis on prévient clairement (l'installation continue : le reste est utile même dans ce cas).
+        $serverReadBack = [string](Invoke-RustDesk '--option', 'custom-rendezvous-server')
+        $lu = ($serverReadBack.Trim() -replace ':\d+$', '')
+        $voulu = ([string]$Server).Trim() -replace ':\d+$', ''
+        if ($lu -and $lu -ieq $voulu) { break }
+    }
+    $luFinal = ($serverReadBack.Trim() -replace ':\d+$', ''); $vouluFinal = ([string]$Server).Trim() -replace ':\d+$', ''
+    if ($luFinal -and $luFinal -ine $vouluFinal) {
+        Write-Warn "ATTENTION : le serveur relu est « $serverReadBack » et non « $Server ». Le poste peut rester sur le serveur PUBLIC de RustDesk : vérifiez-le (Pg20-Diagnostic-Ports.cmd) et relancez l'installation si besoin."
+    }
+    elseif (-not $luFinal) {
+        Write-Detail "Serveur de rendez-vous : appliqué mais non relu (RustDesk n'a pas répondu) ; vérifiez avec Pg20-Diagnostic-Ports.cmd."
+    }
+    else { Write-Ok "Serveur de rendez-vous confirmé : $serverReadBack" }
 }
 else {
     Write-Warn 'Aucun serveur fourni : le serveur public RustDesk est utilisé.'
@@ -1848,7 +2151,47 @@ else {
 # ---------------------------------------------------------------- Accès sans surveillance
 Write-Step 'Définition du mot de passe permanent'
 $generated = -not $Password
+# REPRISE DU MOT DE PASSE SUR UNE RELANCE (correctif du 2026-10-10, point 7 de l'audit). Le contrat (point 3) prévoit qu'une
+# réinstallation propre efface tout et donne un NOUVEL identifiant : dans ce cas un nouveau mot de passe est normal. Le cas à
+# traiter est la relance SANS changement d'identité : l'ancien mot de passe fonctionne toujours chez le client, et en tirer un
+# neuf rendrait l'ancienne fiche du carnet fausse sans que personne ne s'en aperçoive. On reprend donc le mot de passe déjà en
+# place sur CE poste s'il est retrouvable. -NewPassword force un mot de passe neuf (changement volontaire).
+$reprise = $false
+if ($generated -and $rdId -and -not $NewPassword) {
+    $ancien = Get-AccessLocal $rdId
+    if ($ancien) {
+        $Password = $ancien; $generated = $false; $reprise = $true
+        Write-Ok "Mot de passe déjà en place sur ce poste : il est REPRIS à l'identique (utilisez -NewPassword pour en changer)."
+    }
+}
+# Avertissement de RELANCE : si un secours de mot de passe existe déjà pour cet ID, l'exe a DÉJÀ été exécuté ici. Si l'ancien n'a
+# PAS pu être relu (secours local absent, par exemple après une mise à jour depuis une version antérieure), un mot de passe neuf
+# est appliqué : le technicien doit le savoir, car l'ancien cesse de fonctionner et l'ancienne fiche reste dans le carnet.
+if ($generated -and -not $reprise -and $rdId) {
+    $accesExistant = @(
+        (Join-Path $env:ProgramData ('Pg20-Info\acces-' + $rdId + '.enc')),
+        (Join-Path $env:ProgramData ('Pg20-Info\acces-' + $rdId + '.txt'))
+    ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if ($accesExistant) {
+        Write-Warn "Ce poste a DÉJÀ reçu une installation et son mot de passe n'a pas pu être relu : un NOUVEAU mot de passe va être appliqué, l'ancien ne fonctionnera plus. Autorisez la nouvelle fiche dans le carnet et supprimez l'ancienne ligne si elle y figure. Secours précédent : $accesExistant"
+    }
+}
 if ($generated) { $Password = New-RandomPassword $PasswordLength }
+if ($reprise) { Write-Detail "Identité et mot de passe conservés : c'est une relance, pas une nouvelle installation." }
+# Copie locale (DPAPI, portée machine) : seule façon, pour l'exe, de REPRENDRE ce mot de passe lors d'une relance.
+try {
+    $loc = Save-AccessLocal -Id $rdId -Plain $Password
+    if (-not $loc.saved) { Write-Detail "Copie locale du mot de passe non écrite ($($loc.message)) : une relance en tirerait un neuf." }
+    elseif ($loc.message) { Write-Detail "Copie locale du mot de passe écrite, droits non restreints ($($loc.message))." }
+}
+catch { Write-Detail "Copie locale du mot de passe non écrite ($($_.Exception.Message)) : une relance en tirerait un neuf." }
+# Secours écrit AVANT d'appliquer le mot de passe (correctif du 2026-10-10) : si la suite échoue, le mot de passe reste retrouvable.
+try {
+    $acc = Save-AccessBackup -Id $rdId -Plain $Password -PublicKeyXml $TechPublicKey -WithPlainFallback:(-not $TechPublicKey)
+    if ($acc.saved) { Write-Detail "Secours du mot de passe : $($acc.path)" }
+    else { Write-Warn "Secours du mot de passe NON écrit (ni clé publique du technicien, ni écriture en clair demandée) : notez le mot de passe affiché à la fin." }
+}
+catch { Write-Warn "Secours du mot de passe NON écrit ($($_.Exception.Message)) : notez le mot de passe affiché à la fin." }
 Invoke-RustDesk '--password', $Password | Out-Null
 
 if (-not $SkipAuthPolicy) {
@@ -1940,6 +2283,10 @@ if ($consent -and $terms) {
 # ---------------------------------------------------------------- Résultat
 $script:InstallComplete = $true
 if (-not $NoSaveCredentials) {
+  # Correctif du 2026-10-10 : l'écriture du CSV était hors de tout try/catch avec $ErrorActionPreference='Stop'. Une clé USB retirée ou pleine
+  # faisait échouer TOUTE l'installation (fenêtre « L'installation n'a pas abouti ») alors que RustDesk était installé, le mot de passe appliqué
+  # et la fiche peut-être déjà envoyée — et le mot de passe n'était alors ni enregistré ni affiché. Un échec n'arrête plus rien.
+  try {
     if (-not $OutDir) { $OutDir = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path } }
     $csv = Join-Path $OutDir 'rustdesk-deployments.csv'
     # Un ancien CSV (sans colonne PasswordEnc) est mis de côté pour ne pas décaler les colonnes
@@ -1948,6 +2295,19 @@ if (-not $NoSaveCredentials) {
     }
     $new = -not (Test-Path $csv)
     $serverLabel = $(if ($Server) { $Server } elseif ($ConfigString) { '(config importée)' } else { 'public' })
+    # Correctif du 2026-10-10 (audit B, « relancer l'exe n'est pas idempotent ») : le registre accumulait une ligne PAR EXÉCUTION du
+    # même poste (nouveau mot de passe, ancienne ligne conservée). On relit le fichier et on retire les lignes du même ID avant
+    # d'ajouter la nouvelle : le registre contient donc l'état COURANT de chaque poste, une ligne par ID. Les sauvegardes datées
+    # (Rename-Item ci-dessus) gardent l'historique si besoin.
+    try {
+        $anciennes = @(Import-Csv -LiteralPath $csv -Encoding UTF8 -ErrorAction Stop | Where-Object { [string]$_.ID -ne [string]$rdId })
+        if ($anciennes.Count -ne @(Import-Csv -LiteralPath $csv -Encoding UTF8).Count) {
+            $entete = (Get-Content -LiteralPath $csv -TotalCount 1 -Encoding UTF8)
+            [IO.File]::WriteAllText($csv, ($entete + "`r`n"), (New-Object Text.UTF8Encoding($false)))
+            if ($anciennes.Count) { $anciennes | Export-Csv -Path $csv -Append -NoTypeInformation -Encoding UTF8 }
+        }
+    }
+    catch { Write-Detail "Registre des postes : nettoyage des anciennes lignes impossible ($($_.Exception.Message)) ; la nouvelle ligne est ajoutée." }
     New-DeploymentRecord -ClientName $ClientName -ComputerName $env:COMPUTERNAME -Id $rdId -Password $Password `
         -Version $ver -ServerLabel $serverLabel -TechPublicKey $TechPublicKey |
         Export-Csv -Path $csv -Append -NoTypeInformation -Encoding UTF8
@@ -1966,6 +2326,12 @@ if (-not $NoSaveCredentials) {
     }
     # Mot de passe en clair : accès limité aux administrateurs. Chiffré : aucune restriction nécessaire (et l'outil du technicien peut le lire sans élévation).
     if ($new -and -not $TechPublicKey) { icacls $csv /inheritance:r /grant:r '*S-1-5-32-544:F' '*S-1-5-18:F' | Out-Null }
+  }
+  catch {
+    # Un échec ici n'arrête plus l'installation (voir le commentaire du try) : on prévient, et le mot de passe reste affiché à la fin.
+    $csv = ''
+    Write-Warn "Fiche NON enregistrée dans le fichier des postes ($($_.Exception.Message)) : notez le mot de passe affiché à la fin de cette fenêtre, ou récupérez-le dans $env:ProgramData\Pg20-Info."
+  }
 }
 
 $encrypted = [bool]$TechPublicKey -and -not $NoSaveCredentials

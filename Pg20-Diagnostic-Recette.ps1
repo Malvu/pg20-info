@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Pg20 Info : rassemble en UN fichier ce qu'il faut pour juger un essai (recette) sur un PC. LECTURE SEULE : rien n'est installé, créé ni modifié,
+    Info Pg20 : rassemble en UN fichier ce qu'il faut pour juger un essai (recette) sur un PC. LECTURE SEULE : rien n'est installé, créé ni modifié,
     sauf le fichier de rapport.
 
 .DESCRIPTION
@@ -8,14 +8,16 @@
         powershell -NoProfile -ExecutionPolicy Bypass -File .\Pg20-Diagnostic-Recette.ps1
     ou double-clic sur Pg20-Diagnostic-Recette.cmd. Le rapport Recette-<date>.txt s'écrit à côté du script (sur la clé USB, ou dans le dossier TEMP si la
     clé est protégée en écriture) ; il contient : Windows, écran (taille, mise à l'échelle), antivirus, RustDesk (version, service, serveur désigné),
-    tâche de maintenance (état, dernier passage, intervalle), dernières lignes des journaux du lanceur et du script, preuves d'acceptation présentes.
+    tâche de maintenance (état, dernier passage, intervalle), dernières lignes des journaux du lanceur et du script, preuves d'acceptation présentes, puis le profil du poste (processeur, mémoire, type de disque) et la consommation de RustDesk AU REPOS
+    (mémoire, processeur, entrées/sorties mesurés sur 30 secondes, connexions) pour juger une petite configuration. Aucune ligne de commande n'est écrite.
     Il contient le NOM du PC et de la session Windows (utile pour s'y retrouver), JAMAIS un mot de passe ni une clé : les lignes de configuration
     RustDesk ne sont lues que pour le nom du serveur.
 #>
 [CmdletBinding()]
 param(
     [int]$LogLines = 60,       # nombre de dernières lignes de chaque journal
-    [string]$OutDir            # dossier du rapport (défaut : celui du script, sinon TEMP)
+    [string]$OutDir,           # dossier du rapport (défaut : celui du script, sinon TEMP)
+    [int]$MesureSecondes = 30  # durée de la mesure de consommation de RustDesk au repos (0 = pas de mesure du processeur ; 300 au plus)
 )
 $ErrorActionPreference = 'Continue'
 $script:out = New-Object System.Collections.Generic.List[string]
@@ -32,7 +34,7 @@ function Show-Tail([string]$Path, [int]$N) {
     catch { Add-Out "  (illisible : $($_.Exception.Message))" }
 }
 
-Add-Out ('Pg20 Info : rapport de recette, ' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))
+Add-Out ('Info Pg20 : rapport de recette, ' + (Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 Add-Out ('Session : ' + $(if ($isAdmin) { 'administrateur' } else { 'utilisateur standard (certaines lectures sont limitées : relancez en administrateur)' }))
 
@@ -79,6 +81,93 @@ foreach ($cfg in @('C:\Windows\ServiceProfiles\LocalService\AppData\Roaming\Rust
         Add-Out ('  Configuration {0} : serveur = {1}' -f $cfg, $(if ($line) { ($line.Line -replace '^\s*[\w-]+\s*=\s*', '').Trim().Trim("'", '"') } elseif ($denied) { '(illisible : relancez en administrateur)' } else { '(non indiqué)' }))
     }
 }
+
+# ------------------------------------------------------------------ Poste et consommation de RustDesk au repos
+Section 'Poste et consommation de RustDesk au repos (pour juger une petite configuration)'
+$cpus = @(Try-Get { Get-CimInstance Win32_Processor })
+$logical = 0; $cores = 0
+foreach ($c in $cpus) { $logical += [int]$c.NumberOfLogicalProcessors; $cores += [int]$c.NumberOfCores }
+if ($cpus.Count) { Add-Out ("  Processeur : {0} ; {1} coeur(s), {2} thread(s)" -f (($cpus[0].Name -replace '\s+', ' ').Trim()), $cores, $logical) }
+$ramTot = $null
+if ($os) {
+    $ramTot = [double]$os.TotalVisibleMemorySize / 1MB
+    Add-Out ("  Mémoire : {0:N1} Go au total, {1:N1} Go libres" -f $ramTot, ([double]$os.FreePhysicalMemory / 1MB))
+}
+$disquesPhys = @(Try-Get { Get-PhysicalDisk -ErrorAction Stop })
+# Seul le disque qui porte Windows compte pour juger la configuration (un disque de données mécanique n'y change rien)
+$numSysteme = $null
+try { $numSysteme = [string](Get-Partition -DriveLetter $env:SystemDrive.Substring(0, 1) -ErrorAction Stop | Get-Disk -ErrorAction Stop).Number } catch { }
+$mecanique = $false; $systemeConnu = $false; $mecaniqueAilleurs = $false
+foreach ($dq in $disquesPhys) {
+    $estSysteme = ($numSysteme -ne $null -and [string]$dq.DeviceId -eq $numSysteme)
+    Add-Out ("  Disque : {0} ; {1:N0} Go ; type : {2}{3}" -f $dq.FriendlyName, ([double]$dq.Size / 1GB), $dq.MediaType, $(if ($estSysteme) { '  <- DISQUE SYSTÈME (Windows)' } else { '' }))
+    if ($estSysteme) { $systemeConnu = $true; if ([string]$dq.MediaType -eq 'HDD') { $mecanique = $true } }
+    elseif ([string]$dq.MediaType -eq 'HDD') { $mecaniqueAilleurs = $true }
+}
+if (-not $disquesPhys.Count) { Add-Out '  Disque : type non lisible (relancez en administrateur).' }
+elseif (-not $systemeConnu) { Add-Out '  Disque système : non identifié (relancez en administrateur) : le type de disque n''entre pas dans le verdict.' }
+
+# Rôle d'un processus rustdesk.exe d'après ses arguments (la ligne de commande n'est JAMAIS écrite dans le rapport)
+function Get-RoleRustDesk($CommandLine) {
+    $cl = [string]$CommandLine
+    if ($cl -match '--service') { return 'service' }
+    if ($cl -match '--tray') { return 'icône (zone de notification)' }
+    if ($cl -match '--cm') { return 'fenêtre de connexion' }
+    if ($cl -match '--server') { return 'serveur' }
+    return 'interface'
+}
+function Get-RustDeskProcs { @(Try-Get { Get-CimInstance Win32_Process -Filter "Name='rustdesk.exe'" -ErrorAction Stop }) }
+
+if ($MesureSecondes -lt 0) { $MesureSecondes = 0 }
+if ($MesureSecondes -gt 300) { $MesureSecondes = 300 }
+$avant = Get-RustDeskProcs
+if (-not $avant.Count) {
+    Add-Out '  Aucun processus rustdesk.exe en cours : rien à mesurer (service arrêté, ou RustDesk non installé).'
+}
+else {
+    $t0 = Get-Date
+    if ($MesureSecondes -gt 0) {
+        Add-Out ("  Mesure pendant {0} s : ne touchez pas à RustDesk, aucune connexion ne doit être ouverte (on mesure le repos)..." -f $MesureSecondes)
+        Start-Sleep -Seconds $MesureSecondes
+    }
+    $apres = Get-RustDeskProcs
+    $dt = ((Get-Date) - $t0).TotalSeconds
+    $ancien = @{}
+    foreach ($x in $avant) { $ancien[[int]$x.ProcessId] = $x }
+    $totRam = 0.0; $totCpuS = 0.0; $totIo = 0.0; $mesure = $false
+    foreach ($x in @($apres | Sort-Object ProcessId)) {
+        $id = [int]$x.ProcessId
+        $ram = [double]$x.WorkingSetSize / 1MB
+        $totRam += $ram
+        $ligne = ("  {0,-30} PID {1,-6} session {2,-2} mémoire {3,7:N1} Mo ; {4} threads ; {5} handles" -f (Get-RoleRustDesk $x.CommandLine), $id, $x.SessionId, $ram, $x.ThreadCount, $x.HandleCount)
+        if ($MesureSecondes -gt 0 -and $dt -gt 0 -and $ancien.ContainsKey($id)) {
+            $a = $ancien[$id]
+            $cpuS = (([double]$x.KernelModeTime + [double]$x.UserModeTime) - ([double]$a.KernelModeTime + [double]$a.UserModeTime)) / 1e7
+            $io = (([double]$x.ReadTransferCount + [double]$x.WriteTransferCount) - ([double]$a.ReadTransferCount + [double]$a.WriteTransferCount)) / $dt
+            $totCpuS += $cpuS; $totIo += $io; $mesure = $true
+            $ligne += ("`n      processeur {0:N2} % d'un coeur ; entrées/sorties {1:N1} Ko/s" -f ($cpuS / $dt * 100), ($io / 1KB))
+        }
+        $conn = @(Try-Get { Get-NetTCPConnection -OwningProcess $id -ErrorAction Stop })
+        if ($conn.Count) { $ligne += ("`n      connexions TCP : {0} (dont {1} établie(s))" -f $conn.Count, @($conn | Where-Object { $_.State -eq 'Established' }).Count) }
+        Add-Out $ligne
+    }
+    $resume = "  TOTAL RustDesk ({0} processus) : mémoire {1:N1} Mo" -f @($apres).Count, $totRam
+    if ($ramTot) { $resume += (" = {0:N1} % de la mémoire du PC" -f ($totRam / 1024 / $ramTot * 100)) }
+    if ($mesure) {
+        $resume += ("`n  Au repos, sur {0:N0} s : processeur {1:N2} % d'un coeur" -f $dt, ($totCpuS / $dt * 100))
+        if ($logical -gt 0) { $resume += (" ({0:N2} % de l'ensemble du processeur)" -f ($totCpuS / $dt / $logical * 100)) }
+        $resume += (" ; entrées/sorties (réseau et disque) {0:N1} Ko/s" -f ($totIo / $dt / 1KB))
+    }
+    else { $resume += "`n  (pas de mesure du processeur : durée de mesure à 0, ou aucun processus présent aux deux relevés)" }
+    Add-Out $resume
+}
+$raisons = @()
+if ($ramTot -and $ramTot -lt 4.5) { $raisons += ("mémoire de {0:N1} Go" -f $ramTot) }
+if ($logical -gt 0 -and $logical -le 2) { $raisons += ("{0} thread(s) seulement" -f $logical) }
+if ($mecanique) { $raisons += 'disque système mécanique (HDD)' }
+if ($raisons.Count) { Add-Out ("  Poste jugé : PETITE CONFIGURATION ({0})." -f ($raisons -join ', ')) }
+else { Add-Out ('  Poste jugé : configuration confortable (au moins 4,5 Go de mémoire, 3 threads ou plus, ' + $(if ($systemeConnu) { 'disque système non mécanique' } else { 'disque système non identifié' }) + ').') }
+if ($mecaniqueAilleurs) { Add-Out '  (Un disque mécanique est présent mais ne porte pas Windows : il n''entre pas dans le verdict.)' }
 
 # ------------------------------------------------------------------ Tâche de maintenance
 Section 'Tâche de maintenance (Pg20-Info-Maintenance)'

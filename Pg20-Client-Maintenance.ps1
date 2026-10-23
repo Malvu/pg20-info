@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Pg20 Info : tâche de maintenance installée avec RustDesk (compte système, toutes les 3 minutes, sans fenêtre).
+    Info Pg20 : tâche de maintenance installée avec RustDesk (compte système, toutes les 3 minutes, sans fenêtre).
 
 .DESCRIPTION
     Elle ne sait faire qu'UNE chose : si le technicien a demandé la désinstallation de ce poste, la faire. Ce n'est PAS un moyen d'exécuter

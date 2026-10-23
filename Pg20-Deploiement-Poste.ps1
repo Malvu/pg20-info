@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-    Installe le client Pg20 Info SANS aucune question sur CE poste : stratégie de groupe (GPO), outil de gestion à distance (RMM) ou lancement à la main.
+    Installe le client Info Pg20 SANS aucune question sur CE poste : stratégie de groupe (GPO), outil de gestion à distance (RMM) ou lancement à la main.
 
 .DESCRIPTION
     À lancer en administrateur ou sous le compte SYSTEM (c'est le cas d'un script de démarrage GPO ou d'une tâche RMM). Le script :

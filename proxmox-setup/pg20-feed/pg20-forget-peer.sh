@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Retire DÉFINITIVEMENT un poste de la base du serveur RustDesk Pg20 Info (la liste des postes enregistrés).
+# Retire DÉFINITIVEMENT un poste de la base du serveur RustDesk Info Pg20 (la liste des postes enregistrés).
 # Usage : sudo pg20-forget-peer <ID>        (chiffres seulement, sans espaces, ex. 12345678)
 # - Affiche le poste trouvé et demande de taper « oui ».
 # - Fait une copie cohérente de la base AVANT toute suppression (dans data/sauvegardes-base/).
